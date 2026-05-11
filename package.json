@@ -1,0 +1,8 @@
+{
+  "name": "xiaohongshu",
+  "private": true,
+  "scripts": {
+    "dev:web": "npm --prefix apps/web run dev:hot",
+    "dev:web:restart": "node scripts/restart-web.mjs"
+  }
+}

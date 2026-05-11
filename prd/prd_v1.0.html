@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小红书教育内容运营工具 · PRD v1.0</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #1a1d26;
+      --muted: #5c6370;
+      --border: #e2e5ec;
+      --accent: #ff2442;
+      --accent-soft: #fff0f3;
+      --toc-w: 220px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+    .version-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+    select.version-select {
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+    .layout {
+      display: flex;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem;
+      gap: 1.5rem;
+    }
+    nav.toc {
+      position: sticky;
+      top: 3.5rem;
+      align-self: flex-start;
+      width: var(--toc-w);
+      flex-shrink: 0;
+      max-height: calc(100vh - 4rem);
+      overflow: auto;
+      padding: 0.75rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 0.8125rem;
+    }
+    nav.toc strong {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    nav.toc a {
+      display: block;
+      color: var(--text);
+      text-decoration: none;
+      padding: 0.25rem 0;
+      border-radius: 4px;
+    }
+    nav.toc a:hover { color: var(--accent); }
+    main.doc {
+      flex: 1;
+      min-width: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem 2rem;
+    }
+    main.doc h2 {
+      margin: 2rem 0 0.75rem;
+      font-size: 1.25rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 2px solid var(--accent-soft);
+    }
+    main.doc h2:first-of-type { margin-top: 0; }
+    main.doc h3 {
+      margin: 1.35rem 0 0.5rem;
+      font-size: 1.05rem;
+    }
+    main.doc p { margin: 0 0 0.85rem; color: var(--text); }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      margin: 0.75rem 0 1rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.65rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #fafbfc; font-weight: 600; }
+    .tag {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      background: var(--accent-soft);
+      color: #c41e3a;
+      font-weight: 500;
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      padding: 0.65rem 0.85rem;
+      margin: 0.75rem 0;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.875rem;
+    }
+    .placeholder {
+      border: 1px dashed var(--border);
+      background: #fafbfc;
+      padding: 0.85rem;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin: 0.5rem 0;
+    }
+    ul { margin: 0.25rem 0 0.85rem 1.1rem; padding: 0; }
+    li { margin: 0.25rem 0; }
+    @media (max-width: 860px) {
+      .layout { flex-direction: column; }
+      nav.toc {
+        position: relative;
+        top: 0;
+        width: 100%;
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>小红书教育内容运营工具 · 产品需求文档</h1>
+    <div class="version-wrap">
+      <label for="ver">版本</label>
+      <select id="ver" class="version-select" title="版本切换">
+        <option value="prd_v1.0.html" selected>v1.0</option>
+        <option value="prd_v1.1.html">v1.1（最新）</option>
+      </select>
+    </div>
+  </header>
+  <div class="layout">
+    <nav class="toc" aria-label="目录">
+      <strong>目录</strong>
+      <a href="#meta">项目信息与版本记录</a>
+      <a href="#bg">一、需求背景</a>
+      <a href="#goals">二、需求目标</a>
+      <a href="#users">三、用户与使用场景</a>
+      <a href="#features">四、需求功能清单</a>
+      <a href="#detail">五、详细方案</a>
+      <a href="#detail-58" class="pl-3 text-[0.8125rem] text-slate-500">5.8 数据总览</a>
+      <a href="#detail-59" class="pl-3 text-[0.8125rem] text-slate-500">5.9 笔记库与组合</a>
+      <a href="#detail-510" class="pl-3 text-[0.8125rem] text-slate-500">5.10 模版管理</a>
+      <a href="#flow">六、业务流程图</a>
+      <a href="#edge">七、异常与边界</a>
+      <a href="#analytics">八、数据追踪与埋点</a>
+      <a href="#roadmap">九、未来演进</a>
+      <a href="#annex">十、附件</a>
+    </nav>
+    <main class="doc">
+      <section id="meta">
+        <h2>项目信息与版本记录</h2>
+        <p><span class="tag">PRD</span> <strong>文档名称</strong>：小红书教育内容运营工具 · 初版详细 PRD</p>
+        <p class="muted">产品代号：xiaohongshu-edu-ops · 文档路径：<code>prd/prd_v1.0.html</code></p>
+        <table>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>日期</th>
+              <th>作者</th>
+              <th>变更摘要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>v1.0</td>
+              <td>2026-05-08</td>
+              <td>需求对齐会话</td>
+              <td>初版与迭代见上文；本次：总览指标、文案+竞品、笔记库与组合、模版管理、发布选笔记、原型切片扩展。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="bg">
+        <h2>一、需求背景</h2>
+        <h3>1.1 现状问题</h3>
+        <p>运营者计划在小红书开展<strong>教育行业（含 K12 相关）</strong>内容运营，需要在有限时间内稳定产出可发布内容，并完成配图与素材沉淀。当前痛点集中在：</p>
+        <ul>
+          <li>从多平台爆款与选题信号中<strong>提炼选题方向、拆解结构</strong>耗时长、难以标准化。</li>
+          <li>文案需<strong>真人感</strong>且符合<strong>平台教育/K12 规则</strong>，纯模板或泛化生成易踩线或「AI 腔」明显。</li>
+          <li>配图需与文案一致且可管理，需<strong>与文案绑定</strong>，并按<strong>学科系列、学期、年级</strong>归档，且支持<strong>跨学科引流</strong>多标签。</li>
+          <li>发布链路希望由工具<strong>在浏览器中辅助填图填文</strong>；起步阶段<strong>人工审核与人工发布</strong>，未来在可控前提下演进为自动化审核与发布。</li>
+        </ul>
+        <h3>1.2 为什么现在做</h3>
+        <p>以「每周 5 条、单条从打开工具到文案+配图初稿约 10 分钟」为节奏目标，需要一体化工具减少上下文切换（分析 → 撰稿 → 生图 → 素材归档 → 平台侧辅助发布），并将<strong>合规扫描与风险提示</strong>嵌入流程，降低运营与账号风险。</p>
+        <div class="callout">
+          <strong>约束声明（产品层）</strong>：多平台数据采集须遵守各平台用户协议与法律法规；本 PRD 要求实现上提供<strong>合法来源与人工导入等替代路径</strong>，不得以「无授权爬取」为唯一方案写死。浏览器辅助发布能力须与平台规则及账号安全策略一致，分阶段交付。
+        </div>
+      </section>
+
+      <section id="goals">
+        <h2>二、需求目标</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>目标类型</th>
+              <th>描述</th>
+              <th>衡量指标</th>
+              <th>目标值（MVP 口径）</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>效率</td>
+              <td>从打开工具到「文案 + 配图初稿」就绪</td>
+              <td>单条 P50 耗时（工具内计时）</td>
+              <td>≤ 10 分钟</td>
+            </tr>
+            <tr>
+              <td>产能</td>
+              <td>稳定周产出</td>
+              <td>每周完成初稿条数</td>
+              <td>5 条</td>
+            </tr>
+            <tr>
+              <td>质量</td>
+              <td>文案真人感与可发布性</td>
+              <td>人审后「大改率」或「可直接发占比」（上线后由运营自评）</td>
+              <td>基线建立后环比优化（首版记录基线）</td>
+            </tr>
+            <tr>
+              <td>合规</td>
+              <td>K12/教育内容规则与清单校验</td>
+              <td>高风险问题拦截率、误杀率（抽样复盘）</td>
+              <td>首版以「不漏拦明显违规」为优先，误杀通过人工清单迭代降低</td>
+            </tr>
+            <tr>
+              <td>风险可控</td>
+              <td>发布与自动化边界</td>
+              <td>异常进入草稿率、误发事故数</td>
+              <td>误发 0；异常默认草稿</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="users">
+        <h2>三、用户与使用场景</h2>
+        <h3>3.1 典型用户</h3>
+        <p><strong>主要用户</strong>：教育行业小红书内容运营者（可为个人或小团队）。<strong>阶段假设</strong>：同一人完成数据复盘、竞品参考与撰稿、模版维护、生图、历史笔记同步、组合草稿、合规确认与发布（团队权限可后置）。</p>
+        <h3>3.2 用户使用场景（摘要）</h3>
+        <ul>
+          <li><strong>数据复盘</strong>：在总览查看已发布/本周/优质笔记与 Top5 链接，对比近期表现。</li>
+          <li><strong>周中集中生产</strong>：用「模版管理」维护的结构模版 + 竞品链接或粘贴文案生成多版本；配图入库后在「笔记工作台」精修，并按系列/学期/年级归档。</li>
+          <li><strong>资产沉淀</strong>：同步小红书历史笔记与指标入库；将新生成的文案与图稿「组合」为新草稿，纳入笔记管理。</li>
+          <li><strong>发布前</strong>：在「发布笔记」从笔记管理选中目标笔记，预览后核对映射，辅助写入官方创作页，由<strong>人工最终点击发布</strong>（MVP）。</li>
+        </ul>
+        <h3>3.3 用户旅程图（User Journey Map）</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>用户触点</th>
+              <th>用户行为</th>
+              <th>痛点 / 情绪</th>
+              <th>产品机会点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>数据复盘</td>
+              <td>总览仪表盘</td>
+              <td>查看已发布/本周/优质笔记数与 Top5 链接</td>
+              <td>指标分散、难对比</td>
+              <td>统一口径与可跳转官方笔记核对</td>
+            </tr>
+            <tr>
+              <td>竞品与生成</td>
+              <td>文案生成页、竞品链接/粘贴、模版管理</td>
+              <td>粘贴竞品文案或授权拉取 → 选模版 → 生成多版本</td>
+              <td>怕侵权、怕同质</td>
+              <td>合法来源声明 + 模版差异化 + 版本管理</td>
+            </tr>
+            <tr>
+              <td>撰稿</td>
+              <td>模版库、文案编辑器、<strong>文案版本</strong>列表、规则引擎</td>
+              <td>选模版、生成/改写初稿、切换版本；主版本同步至笔记工作台</td>
+              <td>AI 腔、踩线、反复改</td>
+              <td>真人风格约束 + 平台规则摘要 + 可更新禁词/敏感表</td>
+            </tr>
+            <tr>
+              <td>配图</td>
+              <td>AI 生图、<strong>图稿池</strong></td>
+              <td>生成多图、勾选参与发布与排序、封面标星</td>
+              <td>图文不一致、素材难找</td>
+              <td>文案驱动的生图参数；与工作台、发布联动</td>
+            </tr>
+            <tr>
+              <td>整合预览</td>
+              <td><strong>笔记工作台</strong>（对齐小红书创作页）</td>
+              <td>编辑标题/正文/图片条/话题与设置；切换笔记预览与封面预览</td>
+              <td>运营台与官方页长得不一致易填错</td>
+              <td>字段分区同构 + 实时手机框预览</td>
+            </tr>
+            <tr>
+              <td>归档</td>
+              <td>系列 / 学期 / 年级 / 标签</td>
+              <td>打学科系列、跨学科标签、学期年级维度归档</td>
+              <td>后期检索乱、复用难</td>
+              <td>绑定关系与多维筛选</td>
+            </tr>
+            <tr>
+              <td>笔记资产</td>
+              <td>笔记管理列表、同步、组合弹窗</td>
+              <td>同步历史指标；将新文案+图组合为草稿</td>
+              <td>后台与运营台数据不同步</td>
+              <td>授权同步 + 草稿与已发布分区</td>
+            </tr>
+            <tr>
+              <td>合规确认</td>
+              <td>合规扫描报告</td>
+              <td>查看风险提示、必要时人工改写</td>
+              <td>不确定是否可发</td>
+              <td>扫描 + 风险提示（非事实核查全覆盖）</td>
+            </tr>
+            <tr>
+              <td>发布（MVP）</td>
+              <td>发布笔记、笔记管理、浏览器、小红书 Web</td>
+              <td>从笔记管理<strong>选择待发布笔记</strong> → 发布前预览 → 文案版本与图片与映射表确认 → 辅助写入官方页 → 人工点发布</td>
+              <td>操作繁琐、怕选错笔记</td>
+              <td>草稿来源可追溯 + 字段映射 + 步骤校验；未来保留自动发布总开关</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="features">
+        <h2>四、需求功能清单</h2>
+        <p>优先级：<strong>P0</strong> MVP 必达；<strong>P1</strong> 紧随；<strong>P2</strong> 中长期。</p>
+        <table>
+          <thead>
+            <tr>
+              <th>模块</th>
+              <th>功能点</th>
+              <th>优先级</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>数据总览</td>
+              <td>已发布笔记数、本周发布数、优质笔记数（浏览量&gt;1万可配置）、Top5 笔记按浏览量及外链</td>
+              <td>P0</td>
+              <td>指标口径与小红书后台字段对齐；链接跳转官方笔记页</td>
+            </tr>
+            <tr>
+              <td>文案生成与管理</td>
+              <td><strong>文案模版</strong> + <strong>竞品笔记链接</strong>或<strong>竞品文案粘贴</strong> → 生成新文案；版本列表、主版本同步工作台</td>
+              <td>P0</td>
+              <td>竞品数据须合法；K12 清单与真人感约束不变</td>
+            </tr>
+            <tr>
+              <td>图片生成与管理</td>
+              <td>结合当前条目主文案 AI 生图；图稿池、发布勾选、顺序与封面</td>
+              <td>P0</td>
+              <td>与笔记管理组合、工作台、发布联动</td>
+            </tr>
+            <tr>
+              <td>笔记管理</td>
+              <td>读取/同步小红书<strong>历史笔记</strong>入库；单条指标：浏览量、点击率、观看量、点赞、收藏、评论、涨粉；将<strong>新生成文案+图稿组合</strong>生成新笔记草稿</td>
+              <td>P0</td>
+              <td>数据来自官方接口或授权导出；支持草稿与已发布分区</td>
+            </tr>
+            <tr>
+              <td>模版管理</td>
+              <td>文案模版的增删改、启用停用、复制、适用场景与结构说明</td>
+              <td>P0</td>
+              <td>与文案生成页模版选择器同源</td>
+            </tr>
+            <tr>
+              <td>笔记工作台</td>
+              <td>对齐小红书创作页结构：图片条、标题/正文、话题与活动、内容设置、组件；手机笔记/封面预览</td>
+              <td>P0</td>
+              <td>与文案/图稿池双向同步，作为发布前主编辑与预览中枢</td>
+            </tr>
+            <tr>
+              <td>合规</td>
+              <td>小红书 K12/教育规则摘要 + 定期人工更新清单</td>
+              <td>P0</td>
+              <td>生成前约束 + 生成后扫描</td>
+            </tr>
+            <tr>
+              <td>合规</td>
+              <td>机器审核：合规扫描 + 风险提示</td>
+              <td>P0</td>
+              <td>输出风险等级与定位，不替代法务结论</td>
+            </tr>
+            <tr>
+              <td>配图</td>
+              <td>基于文案的 AI 生图、<strong>图稿池</strong>（多图、封面标星、参与发布勾选与顺序）</td>
+              <td>P0</td>
+              <td>与文案条目绑定；与工作台图片条、发布辅助选图联动</td>
+            </tr>
+            <tr>
+              <td>素材库</td>
+              <td>按系列归档；学期、年级；跨学科多标签</td>
+              <td>P0</td>
+              <td>一条内容可多标签；系列与年级学期正交</td>
+            </tr>
+            <tr>
+              <td>发布笔记</td>
+              <td>从<strong>笔记管理</strong>选择待发布笔记；<strong>发布前预览</strong>（笔记/封面）；再选文案版本与图片、字段映射；辅助写入官方创作页</td>
+              <td>P0</td>
+              <td>MVP：辅助填表 + 人工在官方页点击发布；失败回草稿</td>
+            </tr>
+            <tr>
+              <td>自动化</td>
+              <td>机器发布总开关；异常草稿策略</td>
+              <td>P1</td>
+              <td>与熔断、日志联动</td>
+            </tr>
+            <tr>
+              <td>协作</td>
+              <td>多角色权限、操作日志</td>
+              <td>P2</td>
+              <td>小团队期后补</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="detail">
+        <h2>五、详细方案</h2>
+        <p class="muted">本章描述核心业务规则与数据关系；已补充<strong>笔记工作台 / 发布辅助</strong>的原型 iframe 切片（见 5.7）。其余模块的交互级 Mermaid 可继续迭代。</p>
+
+        <h3>5.1 信号采集与分析子系统</h3>
+        <p><strong>前置条件</strong>：用户具备合法数据使用权或提供可分析材料（链接、脱敏导出、人工粘贴正文等）。</p>
+        <p><strong>核心输出</strong>：</p>
+        <ul>
+          <li><strong>选题方向</strong>：若干可选角度，每条含证据摘要（来源、时间、平台）。</li>
+          <li><strong>爆款结构拆解</strong>：可映射到模版字段（如钩子、步骤、案例槽位、引导话术等）。</li>
+        </ul>
+        <p><strong>数据流</strong>：合法输入 → 清洗与去标识化（如需要）→ 结构化特征提取 → 报告对象（可关联到「内容条目」草稿）。</p>
+        <p><strong>业务规则</strong>：默认不存储敏感个人信息；引用竞品原文需提示版权与转载风险；若数据源不可用，降级为「仅人工输入 + 模版生成」。</p>
+
+        <h3>5.2 文案子系统（模版 + 竞品参考 + 真人感 + K12）</h3>
+        <p><strong>模版</strong>：由「模版管理」维护（见 5.10）；生成页拉取启用中的模版。</p>
+        <p><strong>竞品参考</strong>：支持填写竞品笔记链接（在合法授权下拉取正文）或直接粘贴竞品文案摘要；与模版一并作为模型输入，输出差异化初稿并留存引用来源。</p>
+        <p><strong>生成链路</strong>：竞品材料 + 选模版 → 应用「平台公开规则摘要」与「可更新清单」作为硬约束与软提示 → 产出初稿 → 合规扫描。</p>
+        <p><strong>新生成文案的体现与管理</strong>：每次生成产生一条<strong>文案版本</strong>记录（时间戳、模版、规则版本号）；用户可切换主版本。当前主版本的<strong>标题 + 正文</strong>与<strong>笔记工作台</strong>（见 5.3a）双向同步，保证「生成 → 按小红书版式预览与微调」同一条目内闭环。</p>
+        <p><strong>K12 规则落地</strong>：规则来源为平台公开文档摘要；清单由运营定期人工更新（版本号、更新人、生效时间）。生成与扫描均需记录<strong>当时生效的规则版本</strong>，便于复盘。</p>
+
+        <h3>5.3 配图子系统（AI 生图）</h3>
+        <p><strong>绑定关系</strong>：每条「内容条目」维护<strong>图稿池</strong>（多张、多版本）；支持「参与发布」勾选、顺序号、封面标星（首图）。图稿池与<strong>笔记工作台</strong>图片条、<strong>发布辅助</strong>选图列表数据一致。</p>
+        <p><strong>业务规则</strong>：生图提示词由文案关键信息 + 模版视觉风格约束拼接；用户可迭代重生成并保留版本历史；未勾选参与发布的图仅保留在池中，不写入浏览器发布页相册序列。</p>
+
+        <h3>5.3a 笔记工作台（与小红书创作页结构对齐）</h3>
+        <p><strong>定位</strong>：运营台内嵌的「准官方」编辑与预览中枢，字段分区与小红书 Web 创作后台<strong>同构</strong>（图片编辑区、标题/正文、话题与活动话题、内容设置含合集/原创/AI 合成声明、添加组件如位置/分类/附件等），右侧提供<strong>笔记预览 / 封面预览</strong>切换。</p>
+        <p><strong>数据流</strong>：文案主版本 ↔ 工作台标题正文；图稿池勾选序列 ↔ 工作台缩略图条；内容设置与组件 ↔ 发布辅助映射表中的目标字段。</p>
+
+        <h3>5.3b 新生成图片的体现与管理</h3>
+        <p>新生成图片以<strong>图稿</strong>形式进入当前条目的<strong>图稿池</strong>，在「AI 配图」页可管理版本、勾选是否参与发布；同步反映在「笔记工作台」图片条（如 x/18 计数）与「发布辅助」预览中。</p>
+
+        <h3>5.4 素材归档与标签</h3>
+        <p><strong>维度</strong>：系列（数学/英语/物理等）、学期、年级、跨学科引流标签（多选）。</p>
+        <p><strong>规则</strong>：一条内容必须至少一个系列或明确标记为「综合」；学期与年级为必选字段（可枚举可配置）。跨学科标签用于检索与推荐，不改变主系列归属逻辑（主系列单选 + 多标签）。</p>
+
+        <h3>5.5 合规扫描（机器审核）</h3>
+        <p><strong>定义</strong>：合规扫描 + 风险提示（不含全面事实核查）。输出包含：命中规则条目、严重级别、修改建议、是否阻断发布辅助。</p>
+        <p><strong>与发布关系</strong>：MVP 下高风险默认阻断「一键写入浏览器」直至用户显式确认「已知风险继续」（需二次确认并写审计日志）。具体阈值待原型阶段与运营共定。</p>
+
+        <h3>5.6 发布笔记与自动化策略</h3>
+        <p><strong>发布对象</strong>：用户从<strong>笔记管理</strong>中选定一条待发布笔记（含组合生成的草稿）。</p>
+        <p><strong>发布前选择</strong>：可再指定或覆盖<strong>文案版本</strong>与<strong>参与发布的图片集合及顺序</strong>（若草稿已绑定则默认带出）；在发布页切换<strong>笔记预览 / 封面预览</strong>核对效果。</p>
+        <p><strong>字段映射（一一对应）</strong>：维护「小红书官方发布页字段 → 运营台数据源」映射表（含相册 1…N、标题、正文、话题/活动、合集、原创与 AI 声明、位置、分类、附件等）。执行「辅助发布」时按映射将值写入浏览器 DOM 对应控件（选择器随官方改版可配置）。</p>
+        <p><strong>MVP</strong>：仅辅助填充至官方页草稿态；最终「发布」由人工在官方页点击。异常（网络、选择器失效、页面改版）→ 内容状态回退为<strong>草稿</strong>并提示重试路径。</p>
+        <p><strong>未来</strong>：<strong>机器发布总开关</strong>关闭时禁止任何自动点击发布；开启时需满足合规扫描策略与配额；失败一律草稿。</p>
+
+        <h3>5.7 原型切片（专注模式）</h3>
+        <p class="muted">以下为嵌入预览，实际评审请在浏览器中全屏打开原型文件。</p>
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;margin:1rem 0;">
+          <div>
+            <div class="muted" style="font-size:0.8rem;margin-bottom:0.35rem;">笔记工作台</div>
+            <iframe src="../prototype/prototype_v1.0.html?sandbox=true&focus=studio#studio" title="原型-笔记工作台" style="width:100%;max-width:900px;height:560px;border:none;background:transparent;" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+          <div>
+            <div class="muted" style="font-size:0.8rem;margin-bottom:0.35rem;">发布笔记</div>
+            <iframe src="../prototype/prototype_v1.0.html?sandbox=true&focus=publish#publish" title="原型-发布笔记" style="width:100%;max-width:520px;height:560px;border:none;background:transparent;" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+          <div>
+            <div class="muted" style="font-size:0.8rem;margin-bottom:0.35rem;">笔记管理</div>
+            <iframe src="../prototype/prototype_v1.0.html?sandbox=true&focus=notes#notes" title="原型-笔记管理" style="width:100%;max-width:900px;height:480px;border:none;background:transparent;" sandbox="allow-scripts allow-same-origin"></iframe>
+          </div>
+        </div>
+
+        <h3 id="detail-58">5.8 数据总览</h3>
+        <p>展示已发布笔记总数、本周发布数、优质笔记数（默认浏览量大于 1 万，阈值可配置）、待发布草稿数。提供按浏览量排序的 Top 5 笔记列表，每条含标题摘要与小红书笔记链接，支持跳转核对。</p>
+
+        <h3 id="detail-59">5.9 笔记库与组合</h3>
+        <p><strong>历史笔记</strong>：通过官方开放能力、授权数据导出或合规方式同步入库，持久化存储标题、链接、浏览量、点击率、观看量、点赞、收藏、评论、涨粉等指标及同步时间。</p>
+        <p><strong>组合生成</strong>：用户在图稿池与文案版本中多选素材，生成新的「笔记草稿」实体，进入草稿列表，可再进入笔记工作台编辑，并进入发布笔记流程。</p>
+
+        <h3 id="detail-510">5.10 文案模版管理</h3>
+        <p>模版与「文案生成与管理」共用数据源：支持创建、编辑、复制、启用/停用；模版元数据包含名称、适用场景、段落结构说明、禁用营销类型等，供生成与 K12 校验引用。</p>
+      </section>
+
+      <section id="flow">
+        <h2>六、业务流程图</h2>
+        <p class="muted">以下为高阶主流程骨架；异常分支与平台侧细节在原型审查后细化并同步更新本文档。</p>
+        <div class="placeholder">
+          建议使用 Mermaid（如 <code>flowchart TD</code>）在 <code>flowcharts/</code> 中维护可渲染源文件；本版 PRD 内嵌示意如下（若浏览器未加载 Mermaid 渲染库，可直接阅读文字节点逻辑）。
+        </div>
+        <pre style="background:#fafbfc;border:1px solid var(--border);padding:0.85rem;border-radius:8px;overflow:auto;font-size:0.8rem;line-height:1.45;">flowchart TD
+  A[打开工具/新建内容条目] --> B[竞品链接或文案粘贴/授权导入]
+  B --> D[选模版+竞品材料生成文案初稿]
+  D --> E[应用K12规则与清单约束]
+  E --> F[合规扫描与风险提示]
+  F -->|高风险| G[人工修改或二次确认]
+  F -->|可继续| H[据文案 AI生图入图稿池]
+  G --> F
+  H --> ST[笔记工作台: 同构编辑与笔记/封面预览]
+  ST --> I[系列/学期/年级/标签归档]
+  I --> NB[笔记库: 历史同步与组合草稿]
+  NB --> J{发布笔记: 选笔记+预览+映射}
+  J -->|MVP| K[写入浏览器官方页草稿]
+  K --> L[人工审核并手动发布]
+  J -->|未来+开关开| M[自动发布流水线]
+  M -->|失败| N[草稿+告警]
+        </pre>
+      </section>
+
+      <section id="edge">
+        <h2>七、异常与边界处理</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>场景</th>
+              <th>处理策略</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>数据源不可用或不合规</td>
+              <td>提示使用人工导入/官方能力；禁止静默继续爬取</td>
+            </tr>
+            <tr>
+              <td>历史笔记同步失败或指标缺失</td>
+              <td>保留上次成功快照；单条标记「待补数」；支持手动编辑指标与重试同步</td>
+            </tr>
+            <tr>
+              <td>小红书页面结构变更导致辅助失败</td>
+              <td>草稿保留；错误码与日志；引导手动完成或等待适配</td>
+            </tr>
+            <tr>
+              <td>网络中断</td>
+              <td>自动保存草稿；发布辅助可重试</td>
+            </tr>
+            <tr>
+              <td>合规扫描与生成结果冲突</td>
+              <td>以较严策略为准并高亮差异；需人工确认</td>
+            </tr>
+            <tr>
+              <td>自动发布开关误触</td>
+              <td>关键操作二次确认 + 审计日志</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="analytics">
+        <h2>八、数据追踪与埋点（可选）</h2>
+        <p class="muted">首版可先记录关键事件：条目创建、文案生成轮次、竞品拉取结果（成功/拒绝）、模版切换、生图次数、笔记同步任务、组合生成草稿、合规扫描结果、发布笔记选中项、辅助发布成功/失败、规则清单版本号。具体埋点表放入 <code>annex/</code> 后补。</p>
+      </section>
+
+      <section id="roadmap">
+        <h2>九、未来演进规划</h2>
+        <ul>
+          <li><strong>短期</strong>：高保真原型、异常分支流程图、合规阈值与发布辅助稳定性。</li>
+          <li><strong>中期</strong>：在总开关与熔断完备前提下，试点自动发布；团队权限。</li>
+          <li><strong>长期</strong>：更丰富的官方数据对接、A/B 标题、多账号矩阵（须单独合规评估）。</li>
+        </ul>
+      </section>
+
+      <section id="annex">
+        <h2>十、附件</h2>
+        <p>建议在 <code>annex/</code> 目录维护：规则清单变更记录、模版字段字典、埋点字典、平台规则摘要原文链接存档（注意版权与更新频率）。</p>
+      </section>
+    </main>
+  </div>
+  <script>
+    (function () {
+      var sel = document.getElementById("ver");
+      if (!sel) return;
+      sel.addEventListener("change", function () {
+        var v = sel.value;
+        if (v && !v.endsWith(window.location.pathname.split("/").pop())) {
+          window.location.href = v;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

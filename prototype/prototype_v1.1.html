@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>教育小红书运营台 · 原型 v1.1</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { DEFAULT: "#ff2442", soft: "#fff0f3", dark: "#e11d48" },
+            ink: { 900: "#0f172a", 700: "#334155", 500: "#64748b" }
+          },
+          fontFamily: { sans: ["ui-sans-serif", "system-ui", "PingFang SC", "Microsoft YaHei", "sans-serif"] }
+        }
+      }
+    };
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto { content-visibility: auto; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased min-h-screen">
+  <!-- Focus mode banner -->
+  <div id="focus-banner" class="hidden bg-amber-100 text-amber-900 text-sm px-4 py-2 text-center border-b border-amber-200">
+    专注模式：<span id="focus-banner-label"></span> — 其他区域已锁定，仅可操作当前功能
+  </div>
+
+  <div id="app" class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside
+      id="sidebar"
+      data-feature="shell"
+      class="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col"
+    >
+      <div class="p-4 border-b border-slate-100">
+        <div class="text-xs font-semibold text-brand uppercase tracking-wider">Edu XHS</div>
+        <div class="font-semibold text-slate-900 mt-0.5">运营工作台</div>
+        <p class="text-xs text-slate-500 mt-1">原型 v1.1</p>
+      </div>
+      <nav class="p-2 flex-1 space-y-0.5" id="nav">
+        <a href="#dash" data-route="dash" data-feature="dash" class="nav-item flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50">总览</a>
+        <a href="#copy" data-route="copy" data-feature="copy" class="nav-item flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50">文案生成与管理</a>
+        <a href="#images" data-route="images" data-feature="images" class="nav-item flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50">图片生成与管理</a>
+        <a href="#templates" data-route="templates" data-feature="templates" class="nav-item flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50">模版管理</a>
+        <a href="#notes" data-route="notes" data-feature="notes" class="nav-item flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50">笔记管理</a>
+        <a href="#workbench" data-route="workbench" data-feature="workbench" class="nav-item flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50">工作台与发布</a>
+      </nav>
+      <div class="p-3 border-t border-slate-100 text-xs text-slate-400 leading-relaxed">
+        v1.1：<strong>工作台与发布</strong>为同一入口；不含合规扫描、素材归档、自动发布（协作未实现）
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 flex flex-col min-w-0">
+      <header class="h-14 shrink-0 bg-white/80 backdrop-blur border-b border-slate-200 px-6 flex items-center justify-between">
+        <div class="flex items-center gap-3 min-w-0">
+          <h1 id="page-title" class="text-lg font-semibold text-slate-900 truncate">总览</h1>
+          <span class="hidden sm:inline text-xs text-slate-400 truncate">当前条目：初一数学 · 提分笔记 #042</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button type="button" id="btn-save-draft" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">保存草稿</button>
+          <button type="button" id="btn-open-template-modal" data-feature="copy" class="px-3 py-1.5 text-sm rounded-lg bg-brand text-white hover:bg-brand-dark">选择模版</button>
+          <a href="#templates" data-feature="templates" class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hidden sm:inline-block">模版库</a>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-auto p-6">
+        <!-- Dash -->
+        <section id="view-dash" data-route="dash" data-feature="dash" class="view max-w-6xl hidden">
+          <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+              <div class="text-xs text-slate-500">已发布笔记数</div>
+              <div class="text-2xl font-bold text-slate-900 mt-1">128</div>
+              <div class="text-xs text-slate-400 mt-2">账号累计（示意）</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+              <div class="text-xs text-slate-500">本周发布数量</div>
+              <div class="text-2xl font-bold text-slate-900 mt-1">4</div>
+              <div class="text-xs text-emerald-600 mt-2">自然周 Mon–Sun</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+              <div class="text-xs text-slate-500">优质笔记（浏览量 &gt; 1万）</div>
+              <div class="text-2xl font-bold text-slate-900 mt-1">12</div>
+              <div class="text-xs text-slate-400 mt-2">可配置阈值</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4">
+              <div class="text-xs text-slate-500">待发布草稿</div>
+              <div class="text-2xl font-bold text-slate-900 mt-1">3</div>
+              <div class="text-xs text-slate-400 mt-2">在「笔记管理」组合生成</div>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+            <h2 class="font-semibold text-slate-900 mb-3">按浏览量 Top 5 笔记（含小红书链接）</h2>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead>
+                  <tr class="text-xs text-slate-500 border-b border-slate-200">
+                    <th class="py-2 pr-3">#</th>
+                    <th class="py-2 pr-3">标题 / 摘要</th>
+                    <th class="py-2 pr-3">浏览量</th>
+                    <th class="py-2">笔记链接</th>
+                  </tr>
+                </thead>
+                <tbody class="text-slate-700">
+                  <tr class="border-b border-slate-100">
+                    <td class="py-2.5 pr-3">1</td>
+                    <td class="py-2.5 pr-3 max-w-[200px] truncate">暑假规划｜初一数学不翻车</td>
+                    <td class="py-2.5 pr-3 font-medium">3.2万</td>
+                    <td class="py-2.5"><a href="#" class="text-brand hover:underline text-xs">https://www.xiaohongshu.com/explore/xxx（示意）</a></td>
+                  </tr>
+                  <tr class="border-b border-slate-100">
+                    <td class="py-2.5 pr-3">2</td>
+                    <td class="py-2.5 pr-3 truncate">错题本这样用才有效</td>
+                    <td class="py-2.5 pr-3">2.1万</td>
+                    <td class="py-2.5"><a href="#" class="text-brand hover:underline text-xs">https://www.xiaohongshu.com/explore/yyy（示意）</a></td>
+                  </tr>
+                  <tr class="border-b border-slate-100">
+                    <td class="py-2.5 pr-3">3</td>
+                    <td class="py-2.5 pr-3 truncate">期中复盘表领取</td>
+                    <td class="py-2.5 pr-3">1.8万</td>
+                    <td class="py-2.5"><a href="#" class="text-brand hover:underline text-xs">https://www.xiaohongshu.com/explore/zzz（示意）</a></td>
+                  </tr>
+                  <tr class="border-b border-slate-100">
+                    <td class="py-2.5 pr-3">4</td>
+                    <td class="py-2.5 pr-3 truncate">家长别慌系列</td>
+                    <td class="py-2.5 pr-3">1.5万</td>
+                    <td class="py-2.5"><a href="#" class="text-brand hover:underline text-xs">https://…（示意）</a></td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 pr-3">5</td>
+                    <td class="py-2.5 pr-3 truncate">3步提分法</td>
+                    <td class="py-2.5 pr-3">1.2万</td>
+                    <td class="py-2.5"><a href="#" class="text-brand hover:underline text-xs">https://…（示意）</a></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 class="font-semibold text-slate-900 mb-3">建议动线</h2>
+            <ol class="list-decimal list-inside text-sm text-slate-600 space-y-2">
+              <li>「文案生成与管理」：选模版 + 竞品链接或粘贴文案 → 生成并版本管理</li>
+              <li>「图片生成与管理」：结合当前主文案 AI 生图，维护图稿池并与「工作台与发布」联动</li>
+              <li>「笔记管理」：同步历史笔记；将文案与所选图稿<strong>组合</strong>为新草稿</li>
+              <li>「模版管理」+「<strong>工作台与发布</strong>」精修并核对发布对象 → 手机预览 → 辅助写入</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- Copy -->
+        <section id="view-copy" data-route="copy" data-feature="copy" class="view max-w-5xl hidden">
+          <div class="bg-white rounded-xl border border-slate-200 p-5 mb-6 space-y-4">
+            <h2 class="font-semibold text-slate-900 text-sm">竞品参考（合法来源）</h2>
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">竞品笔记链接</label>
+                <input type="url" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2" placeholder="https://www.xiaohongshu.com/explore/…" />
+                <button type="button" id="btn-fetch-competitor" class="mt-2 text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50">拉取正文（需授权/官方能力，示意）</button>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">或直接粘贴竞品文案</label>
+                <textarea rows="4" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2" placeholder="粘贴标题+正文用于结构参考…"></textarea>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400">生成时会结合<strong>已选文案模版</strong> + 上述竞品材料做改写与脱敏；禁止未授权抓取。</p>
+          </div>
+          <div class="grid lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-1 space-y-3">
+              <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <div class="text-xs text-slate-500 mb-1">当前模版</div>
+                <div id="template-label" class="font-medium text-slate-900">教育 · 三步提分法</div>
+                <p class="text-xs text-slate-500 mt-2">模版在「模版管理」统一维护；v1.1 不含内置合规扫描与规则清单。</p>
+              </div>
+              <div class="bg-slate-900 text-white rounded-xl p-4 text-xs leading-relaxed">
+                <strong class="text-slate-200">新生成文案在哪里？</strong><br />
+                每次「重新生成」会新增一条<strong>文案版本</strong>（左侧列表）。主文案同步「<strong>工作台与发布</strong>」编辑区；在「图片生成与管理」据文案生图入<strong>图稿池</strong>；「笔记管理」可将<strong>文案 + 勾选图稿</strong>组合为新草稿。
+              </div>
+              <div class="bg-white rounded-xl border border-slate-200 p-4">
+                <div class="text-xs font-medium text-slate-500 mb-2">文案版本（条目内管理）</div>
+                <ul id="copy-version-list" class="text-sm space-y-1">
+                  <li><button type="button" class="version-item w-full text-left px-2 py-1.5 rounded-lg bg-slate-100 font-medium" data-v="3">v3 · 新生成 · 10:02</button></li>
+                  <li><button type="button" class="version-item w-full text-left px-2 py-1.5 rounded-lg text-slate-600 hover:bg-slate-50" data-v="2">v2 · 人工微调</button></li>
+                  <li><button type="button" class="version-item w-full text-left px-2 py-1.5 rounded-lg text-slate-600 hover:bg-slate-50" data-v="1">v1 · 初稿</button></li>
+                </ul>
+              </div>
+              <div class="bg-brand-soft rounded-xl border border-red-100 p-4 text-sm text-slate-700">
+                <strong class="text-brand">真人感</strong>：口语化断句、避免「综上所述」等 AI 套话；禁用夸张保过承诺。
+              </div>
+            </div>
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 flex flex-col min-h-[320px]">
+              <div class="flex justify-between items-center mb-3">
+                <h2 class="font-semibold text-slate-900">标题与正文</h2>
+                <button type="button" id="btn-generate-copy" class="text-sm px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark">重新生成</button>
+              </div>
+              <label class="block text-xs text-slate-500 mb-1">标题</label>
+              <input id="copy-title" type="text" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2 mb-3" value="暑假不手忙脚乱，开学才能轻松应战！" />
+              <label class="block text-xs text-slate-500 mb-1">正文</label>
+              <textarea id="copy-editor" rows="12" class="flex-1 w-full text-sm rounded-lg border border-slate-200 px-3 py-2 leading-relaxed" title="正文编辑">期中刚过，很多家长问我：孩子错题明明订正了，为啥还错？
+
+我带了七年初一数学，总结就三件事——
+
+① 错题要「分类」，按知识点贴标签，别只抄一遍答案。
+② 周末固定 20 分钟「错题复活」，只做错过的变形题。
+③ 让孩子讲一遍题给你听，讲清楚才算真会。
+
+评论区扣「清单」，我把期中复盘表发你。真的有用再回来谢我～</textarea>
+              <p class="text-xs text-slate-400 mt-2"><a href="#workbench" class="text-brand hover:underline">去工作台与发布</a> 查看标题/正文、图片条与发布核对。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Images -->
+        <section id="view-images" data-route="images" data-feature="images" class="view max-w-5xl hidden">
+          <div class="bg-slate-900 text-white rounded-xl p-4 text-xs mb-4 leading-relaxed max-w-3xl">
+            <strong class="text-slate-200">图片生成与管理</strong><br />
+            结合<strong>当前条目主文案</strong>生成图稿；维护<strong>图稿池</strong>（勾选参与发布、顺序、封面标星）。同步至「<strong>工作台与发布</strong>」页的图片条与发布核对列表；可在<strong>笔记管理</strong>与文案组合为新笔记。
+          </div>
+          <div class="grid md:grid-cols-2 gap-6">
+            <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+              <h2 class="font-semibold text-slate-900">生图参数</h2>
+              <p class="text-xs text-slate-500">由主文案关键信息 + 模版视觉风格约束拼接（示意）</p>
+              <textarea rows="4" readonly class="w-full text-sm rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">清新扁平插画，初一数学笔记本、便利贴、柔和晨光，无真人正脸，教育类氛围</textarea>
+              <button type="button" id="btn-gen-image" class="w-full py-2.5 rounded-lg bg-brand text-white text-sm font-medium">生成新图稿（入池）</button>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-5">
+              <h3 class="text-sm font-semibold mb-3">当前条目图稿池</h3>
+              <p class="text-xs text-slate-500 mb-3">最多 18 张示意；勾选「参与发布」并排序。</p>
+              <ul id="image-pool-list" class="space-y-2" aria-label="图稿池"></ul>
+              <p class="text-xs text-slate-400 mt-2">每条图稿记录「来源文案版本」；切换主文案版本后再生图将带新版本标签（演示）。</p>
+              <div id="image-preview" class="mt-3 aspect-square rounded-xl bg-gradient-to-br from-rose-100 via-white to-sky-100 border border-slate-200 flex items-center justify-center text-slate-400 text-sm">大图预览 · 1080×1080</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Templates -->
+        <section id="view-templates" data-route="templates" data-feature="templates" class="view max-w-5xl hidden">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+            <div>
+              <p class="text-xs text-slate-500">用于「文案生成与管理」的模版来源；支持启用/停用与版本备注。</p>
+            </div>
+            <button type="button" id="btn-new-template" class="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium shrink-0">新建模版</button>
+          </div>
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="bg-white rounded-xl border border-slate-200 p-4 flex flex-col">
+              <div class="flex justify-between items-start gap-2">
+                <span class="font-medium text-slate-900">教育 · 三步提分法</span>
+                <span class="text-[10px] uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">启用</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-2 flex-1">结构：痛点钩子 → 三步可执行 → 资料/评论引导。适用初一数学。</p>
+              <div class="flex gap-3 mt-3 text-xs">
+                <button type="button" class="text-brand font-medium">编辑</button>
+                <button type="button" class="text-slate-500">复制</button>
+                <button type="button" class="text-slate-400">停用</button>
+              </div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4 flex flex-col">
+              <div class="flex justify-between items-start gap-2">
+                <span class="font-medium text-slate-900">教育 · 错题复盘故事</span>
+                <span class="text-[10px] uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">启用</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-2 flex-1">故事线 + 情绪曲线 + 单点方法。</p>
+              <div class="flex gap-3 mt-3 text-xs">
+                <button type="button" class="text-brand font-medium">编辑</button>
+                <button type="button" class="text-slate-500">复制</button>
+                <button type="button" class="text-slate-400">停用</button>
+              </div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 p-4 flex flex-col opacity-70">
+              <div class="flex justify-between items-start gap-2">
+                <span class="font-medium text-slate-900">教育 · 资料引流软转化</span>
+                <span class="text-[10px] uppercase text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">停用</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-2 flex-1">敏感场景默认停用，需运营复核后启用。</p>
+              <div class="flex gap-3 mt-3 text-xs">
+                <button type="button" class="text-brand font-medium">编辑</button>
+                <button type="button" class="text-slate-500">复制</button>
+                <button type="button" class="text-slate-400">启用</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Notes: history + compose -->
+        <section id="view-notes" data-route="notes" data-feature="notes" class="view max-w-[1100px] hidden">
+          <div class="flex flex-wrap gap-3 mb-4 items-center">
+            <button type="button" id="btn-sync-xhs" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium">同步小红书历史笔记</button>
+            <button type="button" id="btn-open-compose" class="px-4 py-2 rounded-lg border border-brand text-brand text-sm font-medium">组合生成新笔记</button>
+            <span class="text-xs text-slate-500">数据须来自<strong>官方开放接口 / 授权导出 / 手动导入</strong>（示意）</span>
+          </div>
+          <div class="flex gap-2 mb-4 text-sm">
+            <button type="button" class="notes-tab px-3 py-1.5 rounded-lg bg-slate-900 text-white" data-tab="hist">已发布历史</button>
+            <button type="button" class="notes-tab px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100" data-tab="draft">草稿 / 组合生成</button>
+          </div>
+          <div id="notes-panel-hist" class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs text-left min-w-[920px]">
+                <thead>
+                  <tr class="text-slate-500 bg-slate-50 border-b border-slate-200">
+                    <th class="py-2 px-2">笔记标题</th>
+                    <th class="py-2 px-2">链接</th>
+                    <th class="py-2 px-2">浏览量</th>
+                    <th class="py-2 px-2">点击率</th>
+                    <th class="py-2 px-2">观看量</th>
+                    <th class="py-2 px-2">点赞</th>
+                    <th class="py-2 px-2">收藏</th>
+                    <th class="py-2 px-2">评论</th>
+                    <th class="py-2 px-2">涨粉</th>
+                  </tr>
+                </thead>
+                <tbody class="text-slate-700">
+                  <tr class="border-b border-slate-100">
+                    <td class="py-2 px-2 max-w-[140px] truncate">暑假规划｜初一数学</td>
+                    <td class="py-2 px-2"><a href="#" class="text-brand hover:underline truncate block max-w-[120px]">/explore/a1</a></td>
+                    <td class="py-2 px-2">32,105</td>
+                    <td class="py-2 px-2">6.2%</td>
+                    <td class="py-2 px-2">28,900</td>
+                    <td class="py-2 px-2">1,240</td>
+                    <td class="py-2 px-2">890</td>
+                    <td class="py-2 px-2">132</td>
+                    <td class="py-2 px-2">+42</td>
+                  </tr>
+                  <tr class="border-b border-slate-100">
+                    <td class="py-2 px-2 truncate">错题本这样用</td>
+                    <td class="py-2 px-2"><a href="#" class="text-brand hover:underline">/explore/b2</a></td>
+                    <td class="py-2 px-2">21,003</td>
+                    <td class="py-2 px-2">5.1%</td>
+                    <td class="py-2 px-2">19,200</td>
+                    <td class="py-2 px-2">980</td>
+                    <td class="py-2 px-2">720</td>
+                    <td class="py-2 px-2">88</td>
+                    <td class="py-2 px-2">+18</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2 px-2 truncate">期中复盘表</td>
+                    <td class="py-2 px-2"><a href="#" class="text-brand hover:underline">/explore/c3</a></td>
+                    <td class="py-2 px-2">18,220</td>
+                    <td class="py-2 px-2">4.8%</td>
+                    <td class="py-2 px-2">16,100</td>
+                    <td class="py-2 px-2">760</td>
+                    <td class="py-2 px-2">540</td>
+                    <td class="py-2 px-2">201</td>
+                    <td class="py-2 px-2">+9</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div id="notes-panel-draft" class="hidden bg-white rounded-xl border border-slate-200 p-5">
+            <ul class="text-sm text-slate-600 space-y-2">
+              <li class="flex justify-between border-b border-slate-100 py-2"><span>草稿 #D1 · 仅文案 v3</span><span class="text-xs text-slate-400">待配图</span></li>
+              <li class="flex justify-between border-b border-slate-100 py-2"><span>草稿 #D2 · 组合生成</span><span class="text-xs text-emerald-600">图文齐全</span></li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- Workbench: 编辑 + 手机预览 + 发布核对（同一页） -->
+        <section id="view-workbench" data-route="workbench" data-feature="workbench" class="view max-w-[1280px] hidden">
+          <div class="bg-slate-900 text-white rounded-xl p-4 text-xs mb-4 leading-relaxed max-w-4xl">
+            <strong class="text-slate-200">工作台与发布</strong><br />
+            <strong>图文编辑与发布同一页</strong>：左侧编辑、中间手机预览、右侧<strong>发布</strong>；核对后点「发布到小红书（网页版）」→ 在<strong>默认浏览器</strong>中打开<strong>小红书创作服务平台 · 图文笔记发布页</strong>，由产品侧辅助填入标题/正文（演示含剪贴板复制）；图片在网页端上传或由后续扩展写入。
+          </div>
+          <p class="text-xs text-slate-500 mb-4">与小红书 Web 创作后台<strong>结构对齐</strong>；发布目标为<strong>浏览器版</strong>官方发布流程，非 App 内嵌。</p>
+          <div class="grid xl:grid-cols-[1fr_320px] gap-6 items-start">
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+                <span class="text-sm font-semibold text-slate-900">图文编辑</span>
+                <span class="text-xs text-slate-400">条目 #042</span>
+              </div>
+              <div class="p-5 space-y-5 max-h-[calc(100vh-8rem)] overflow-y-auto">
+                <div class="rounded-lg border border-slate-200 bg-slate-50/90 p-4 space-y-2">
+                  <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3">
+                    <div class="flex-1 min-w-0 sm:min-w-[220px]">
+                      <label for="studio-notes-import-select" class="block text-xs text-slate-500 mb-1">从笔记管理选择笔记，填充标题与正文</label>
+                      <select id="studio-notes-import-select" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2 bg-white">
+                        <option value="">— 请选择笔记 —</option>
+                        <optgroup label="已发布历史">
+                          <option value="pub-a">暑假规划｜初一数学不翻车（12.8万浏览）</option>
+                          <option value="pub-b">错题本这样用才有效（2.1万浏览）</option>
+                        </optgroup>
+                        <optgroup label="草稿 / 组合">
+                          <option value="draft-d1">草稿 #D1 · 仅文案 v3</option>
+                          <option value="draft-d2">草稿 #D2 · 组合生成 · 图文齐全</option>
+                        </optgroup>
+                      </select>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <button type="button" id="btn-studio-import-note" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">载入到编辑区</button>
+                      <a href="#notes" class="text-xs text-brand font-medium hover:underline whitespace-nowrap">去笔记管理</a>
+                    </div>
+                  </div>
+                  <p class="text-xs text-slate-400">示意：拉取笔记管理中的标题与正文；图稿仍以「图片生成与管理」图稿池为准，载入后可在下方继续改。</p>
+                </div>
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-slate-800">图片编辑</span>
+                    <span class="text-xs text-slate-500"><span id="studio-img-count">0</span>/18 · 参与发布</span>
+                  </div>
+                  <div id="studio-img-strip" class="flex gap-2 flex-wrap items-center min-h-[5.5rem]"></div>
+                  <button type="button" id="btn-studio-add-img" class="mt-2 text-xs text-brand font-medium hover:underline">去「图片生成与管理」生图</button>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">封面图 URL（可选）</label>
+                  <input id="studio-cover-url" type="url" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2" placeholder="https://…" />
+                  <p id="cover-url-rule" class="text-xs text-slate-400 mt-1">有「参与发布」图稿时：首图/封面预览以<strong>标星图稿</strong>为准，URL 仅作运营备忘；无图稿时可用 URL 做首图预览占位。</p>
+                </div>
+                <div>
+                  <div class="flex flex-wrap gap-2 mb-2">
+                    <button type="button" class="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">智能标题</button>
+                    <span class="text-xs text-slate-400 self-center"><span id="studio-char-count">0</span>/1000</span>
+                  </div>
+                  <label class="block text-xs text-slate-500 mb-1">标题</label>
+                  <input id="studio-title" type="text" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2" value="暑假不手忙脚乱，开学才能轻松应战！" />
+                  <label class="block text-xs text-slate-500 mt-3 mb-1">正文</label>
+                  <textarea id="studio-body" rows="10" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2 leading-relaxed">期中刚过，很多家长问我：孩子错题明明订正了，为啥还错？
+
+我带了七年初一数学，总结就三件事——
+
+① 错题要「分类」，按知识点贴标签，别只抄一遍答案。
+② 周末固定 20 分钟「错题复活」，只做错过的变形题。
+③ 让孩子讲一遍题给你听，讲清楚才算真会。
+
+评论区扣「清单」，我把期中复盘表发你。真的有用再回来谢我～</textarea>
+                  <div class="flex flex-wrap gap-2 mt-2 text-xs text-slate-500">
+                    <span class="px-2 py-1 rounded border border-slate-200">#话题</span>
+                    <span class="px-2 py-1 rounded border border-slate-200">@用户</span>
+                    <span class="px-2 py-1 rounded border border-slate-200">表情</span>
+                  </div>
+                  <div class="mt-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
+                    <div class="text-xs font-medium text-slate-600 mb-1">活动话题</div>
+                    <label class="text-xs text-slate-600"><input type="checkbox" class="rounded border-slate-300 mr-1" /> #RED新生代创作大赛（示意）</label>
+                  </div>
+                </div>
+                <div class="border-t border-slate-100 pt-4 space-y-3">
+                  <div class="text-sm font-medium text-slate-800">内容设置</div>
+                  <div class="flex flex-wrap gap-4 text-xs">
+                    <label class="flex items-center gap-1 text-slate-600"><input type="checkbox" class="rounded border-slate-300" /> 加入合集（数学提分系列）</label>
+                    <label class="flex items-center gap-1 text-slate-600"><input type="checkbox" class="rounded border-slate-300" /> 原创声明</label>
+                  </div>
+                  <div>
+                    <span class="text-xs text-slate-500">笔记含 AI 合成内容</span>
+                    <select class="ml-2 text-xs rounded border border-slate-200 px-2 py-1">
+                      <option>含 AI 生成图片</option>
+                      <option>不含</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="border-t border-slate-100 pt-4 space-y-2">
+                  <div class="text-sm font-medium text-slate-800">添加组件</div>
+                  <div class="flex flex-wrap gap-2 text-xs">
+                    <span class="px-2 py-1 rounded-lg bg-slate-100">位置 · 南开区</span>
+                    <span class="px-2 py-1 rounded-lg bg-slate-100">分类 · 初中教育</span>
+                    <button type="button" class="px-2 py-1 rounded-lg border border-dashed border-slate-300 text-slate-500">+ 选择文件</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="xl:sticky xl:top-24 space-y-3">
+              <div class="flex rounded-lg border border-slate-200 bg-white p-1 text-xs font-medium">
+                <button type="button" id="tab-preview-note" class="flex-1 py-2 rounded-md bg-slate-900 text-white">笔记预览</button>
+                <button type="button" id="tab-preview-cover" class="flex-1 py-2 rounded-md text-slate-600 hover:bg-slate-50">封面预览</button>
+              </div>
+              <div class="mx-auto w-[280px] rounded-[2rem] border-8 border-slate-900 bg-slate-900 shadow-xl overflow-hidden">
+                <div class="bg-white rounded-b-3xl min-h-[520px] flex flex-col">
+                  <div class="h-7 bg-slate-900 shrink-0"></div>
+                  <div id="phone-preview-note" class="p-3 flex-1 overflow-hidden">
+                    <div class="rounded-xl overflow-hidden mb-2">
+                      <div id="phone-first-visual" class="aspect-[3/4] bg-gradient-to-b from-rose-100 to-sky-50 flex items-end justify-center pb-4 text-xs text-slate-500">首图预览</div>
+                    </div>
+                    <p id="phone-title" class="text-sm font-semibold text-slate-900 leading-snug">暑假不手忙脚乱，开学才能轻松应战！</p>
+                    <p id="phone-body" class="text-xs text-slate-600 mt-2 line-clamp-6 whitespace-pre-line">正文预览与左侧同步…</p>
+                  </div>
+                  <div id="phone-preview-cover" class="hidden p-4 flex flex-col items-center justify-center min-h-[480px]">
+                    <div class="w-full aspect-square rounded-xl bg-gradient-to-br from-rose-100 to-sky-100 border border-slate-200 flex items-center justify-center text-slate-500 text-sm">封面安全区</div>
+                    <p class="text-xs text-slate-400 mt-3">优先标星图稿；无图稿时见本页封面 URL 规则</p>
+                  </div>
+                </div>
+              </div>
+
+              <div id="publish-quick-card" class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div class="text-sm font-semibold text-slate-900 mb-0.5">发布（与左侧图文一体）</div>
+                <p class="text-xs text-slate-500 mb-2">目标：<strong>小红书网页版</strong>创作发布页</p>
+                <p id="publish-quick-summary" class="text-xs text-slate-600 leading-relaxed mb-3"></p>
+                <p id="publish-copy-lock-hint" class="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5 mb-2 hidden"></p>
+                <div id="publish-copy-quick-wrap" class="mb-3">
+                  <div class="text-xs text-slate-500 mb-1.5">文案版本（当前条目）</div>
+                  <div id="publish-copy-panel" class="space-y-2 text-sm">
+                    <label class="flex items-center gap-2 p-2 rounded-lg border border-brand bg-brand-soft cursor-pointer pub-copy-label">
+                      <input type="radio" name="pub-copy" value="v3" checked class="text-brand pub-copy-radio" />
+                      <span>v3 · 新生成（与条目主文案一致）</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer pub-copy-label">
+                      <input type="radio" name="pub-copy" value="v2" class="text-brand pub-copy-radio" />
+                      <span>v2 · 人工微调</span>
+                    </label>
+                  </div>
+                </div>
+                <label class="flex items-start gap-2 text-xs text-slate-700 mb-3 cursor-pointer">
+                  <input type="checkbox" id="publish-preview-ok" class="mt-0.5 rounded border-slate-300 shrink-0" />
+                  <span>我已切换并核对上方「笔记预览 / 封面预览」，与待发内容一致</span>
+                </label>
+                <button
+                  type="button"
+                  id="btn-assist-publish"
+                  disabled
+                  class="w-full py-3 rounded-xl bg-brand text-white text-sm font-semibold shadow-sm hover:bg-brand-dark disabled:opacity-45 disabled:cursor-not-allowed"
+                >
+                  发布到小红书（网页版）
+                </button>
+                <p class="text-xs text-slate-400 mt-2 leading-relaxed">需先勾选确认；点击后<strong>新标签打开</strong> <code class="text-[0.65rem] bg-slate-100 px-1 rounded">creator.xiaohongshu.com/publish/imgNote</code>；演示会尝试把标题+正文复制到剪贴板，相册请在网页端上传或由扩展写入。</p>
+                <button type="button" id="btn-toggle-advanced-publish" class="mt-3 w-full text-xs text-brand font-medium hover:underline">
+                  从笔记草稿发布…
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="publish-advanced" class="hidden mt-8 pt-6 border-t border-slate-200 max-w-3xl">
+            <h2 class="text-sm font-semibold text-slate-900 mb-1">从草稿发布（高级）</h2>
+            <p class="text-xs text-slate-500 mb-4">选择笔记管理中的草稿时，需核对快照中的文案版本与图稿列表。</p>
+            <div class="space-y-4">
+              <div class="bg-white rounded-xl border border-slate-200 p-5">
+                <h3 class="font-semibold text-slate-900 mb-3 text-sm">选择要发布的笔记</h3>
+                <label class="block text-xs text-slate-500 mb-1">来自笔记管理</label>
+                <select id="publish-note-select" class="w-full text-sm rounded-lg border border-slate-200 px-3 py-2">
+                  <option value="current" selected>当前条目 #042（本页编辑区）</option>
+                  <option value="d2">草稿 #D2 · 组合生成 · 图文齐全</option>
+                  <option value="d1">草稿 #D1 · 仅文案 v3</option>
+                </select>
+                <p id="publish-bind-hint" class="text-xs text-slate-500 mt-2 leading-relaxed"></p>
+                <a href="#notes" class="text-xs text-brand mt-2 inline-block hover:underline">去笔记管理</a>
+              </div>
+              <div class="bg-white rounded-xl border border-slate-200 p-5">
+                <h3 class="font-semibold text-slate-900 mb-3 text-sm">参与发布的图片</h3>
+                <p class="text-xs text-slate-500 mb-2">草稿为<strong>快照只读</strong>；当前条目与图稿池实时一致。</p>
+                <ul class="text-sm space-y-2" id="publish-img-summary"></ul>
+                <p id="publish-img-foot" class="text-xs text-slate-400 mt-2"></p>
+                <a href="#images" id="publish-img-link" class="text-xs text-brand mt-1 inline-block hover:underline">去调整选图</a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal: template picker -->
+  <div id="modal-templates" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40" aria-hidden="true">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 relative">
+      <button type="button" id="modal-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+      <h2 class="text-lg font-semibold text-slate-900 mb-4">选择模版</h2>
+      <div class="space-y-2">
+        <button type="button" class="tpl-pick w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:border-brand hover:bg-brand-soft text-sm" data-name="教育 · 三步提分法">教育 · 三步提分法</button>
+        <button type="button" class="tpl-pick w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:border-brand hover:bg-brand-soft text-sm" data-name="教育 · 错题复盘故事">教育 · 错题复盘故事</button>
+        <button type="button" class="tpl-pick w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:border-brand hover:bg-brand-soft text-sm" data-name="教育 · 资料引流软转化">教育 · 资料引流软转化</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: compose note -->
+  <div id="modal-compose" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 relative">
+      <button type="button" id="modal-compose-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+      <h2 class="text-lg font-semibold text-slate-900 mb-2">组合生成新笔记</h2>
+      <p class="text-xs text-slate-500 mb-4">选择<strong>文案版本</strong>与<strong>图稿池中的图</strong>，生成新草稿并进入笔记管理；发布在「工作台与发布」页完成。</p>
+      <div class="space-y-3 text-sm">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">文案版本</label>
+          <select class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+            <option>v3 · 新生成 · 10:02</option>
+            <option>v2 · 人工微调</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">图片（多选）</label>
+          <div class="space-y-1 text-xs text-slate-600">
+            <label class="flex items-center gap-2"><input type="checkbox" checked class="rounded border-slate-300" /> 图稿 A（封面）</label>
+            <label class="flex items-center gap-2"><input type="checkbox" checked class="rounded border-slate-300" /> 图稿 B</label>
+            <label class="flex items-center gap-2"><input type="checkbox" class="rounded border-slate-300" /> 图稿 C</label>
+          </div>
+        </div>
+      </div>
+      <button type="button" id="modal-compose-confirm" class="mt-5 w-full py-2.5 rounded-lg bg-brand text-white text-sm font-medium">生成草稿并加入笔记管理</button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-slate-900 text-white text-sm shadow-lg"></div>
+
+  <script>
+    (function () {
+      var titles = {
+        dash: "总览",
+        copy: "文案生成与管理",
+        images: "图片生成与管理",
+        notes: "笔记管理",
+        templates: "模版管理",
+        workbench: "工作台与发布"
+      };
+
+      function getQuery() {
+        var p = new URLSearchParams(window.location.search);
+        return { focus: p.get("focus") || "", sandbox: p.get("sandbox") === "true" };
+      }
+
+      function applyFocusMode() {
+        var q = getQuery();
+        var focus = (q.focus || "").trim().toLowerCase();
+        var banner = document.getElementById("focus-banner");
+        var bannerLabel = document.getElementById("focus-banner-label");
+        var app = document.getElementById("app");
+        var shell = document.getElementById("sidebar");
+        var navItems = document.querySelectorAll(".nav-item");
+        var sections = document.querySelectorAll("[data-feature]");
+        var headerBtns = document.querySelectorAll("header [data-feature]");
+
+        if (!focus) {
+          banner.classList.add("hidden");
+          shell.classList.remove("pointer-events-none", "opacity-50");
+          navItems.forEach(function (el) {
+            el.classList.remove("pointer-events-none", "opacity-40");
+          });
+          sections.forEach(function (el) {
+            el.classList.remove("pointer-events-none", "opacity-40", "grayscale");
+          });
+          headerBtns.forEach(function (el) {
+            el.classList.remove("pointer-events-none", "opacity-40");
+          });
+          return;
+        }
+
+        banner.classList.remove("hidden");
+        bannerLabel.textContent = focus;
+
+        // Sidebar: only nav link matching focus stays fully active; sidebar shell dimmed if focus is main-only — we still need nav to switch? Skill says lock unrelated. So dim entire sidebar except matching nav.
+        navItems.forEach(function (el) {
+          var f = (el.getAttribute("data-feature") || "").toLowerCase();
+          if (f === focus) {
+            el.classList.remove("pointer-events-none", "opacity-40");
+          } else {
+            el.classList.add("pointer-events-none", "opacity-40");
+          }
+        });
+        shell.classList.remove("pointer-events-none", "opacity-50");
+
+        sections.forEach(function (el) {
+          var f = (el.getAttribute("data-feature") || "").toLowerCase();
+          if (f === "shell") return;
+          if (f === focus) {
+            el.classList.remove("pointer-events-none", "opacity-40", "grayscale");
+          } else {
+            el.classList.add("pointer-events-none", "opacity-40", "grayscale");
+          }
+        });
+
+        headerBtns.forEach(function (el) {
+          var f = (el.getAttribute("data-feature") || "").toLowerCase();
+          if (!f || f === focus) {
+            el.classList.remove("pointer-events-none", "opacity-40");
+          } else {
+            el.classList.add("pointer-events-none", "opacity-40");
+          }
+        });
+      }
+
+      function updatePhonePreview() {
+        var st = document.getElementById("studio-title");
+        var sb = document.getElementById("studio-body");
+        var pt = document.getElementById("phone-title");
+        var pb = document.getElementById("phone-body");
+        if (st && pt) pt.textContent = st.value || "标题";
+        if (sb && pb) {
+          var raw = sb.value || "";
+          pb.textContent = raw.slice(0, 140) + (raw.length > 140 ? "…" : "");
+        }
+        var cc = document.getElementById("studio-char-count");
+        if (sb && cc) cc.textContent = (sb.value || "").length;
+      }
+
+      function syncCopyToStudio() {
+        var ct = document.getElementById("copy-title");
+        var ce = document.getElementById("copy-editor");
+        var st = document.getElementById("studio-title");
+        var sb = document.getElementById("studio-body");
+        if (ct && st) st.value = ct.value;
+        if (ce && sb) sb.value = ce.value;
+        updatePhonePreview();
+      }
+
+      function syncStudioToCopy() {
+        var ct = document.getElementById("copy-title");
+        var ce = document.getElementById("copy-editor");
+        var st = document.getElementById("studio-title");
+        var sb = document.getElementById("studio-body");
+        if (ct && st) ct.value = st.value;
+        if (ce && sb) ce.value = sb.value;
+      }
+
+      function wireTextSync() {
+        var ct = document.getElementById("copy-title");
+        var ce = document.getElementById("copy-editor");
+        var st = document.getElementById("studio-title");
+        var sb = document.getElementById("studio-body");
+        if (ct && st && !ct._wired) {
+          ct._wired = true;
+          ct.addEventListener("input", function () {
+            st.value = ct.value;
+            updatePhonePreview();
+          });
+          st.addEventListener("input", function () {
+            ct.value = st.value;
+            updatePhonePreview();
+          });
+        }
+        if (ce && sb && !ce._wired) {
+          ce._wired = true;
+          ce.addEventListener("input", function () {
+            sb.value = ce.value;
+            updatePhonePreview();
+          });
+          sb.addEventListener("input", function () {
+            ce.value = sb.value;
+            updatePhonePreview();
+          });
+        }
+      }
+
+      function showRoute(route) {
+        var r = route || "dash";
+        if (!titles[r]) r = "dash";
+        if (r === "workbench") syncCopyToStudio();
+        if (r === "copy") syncStudioToCopy();
+        document.querySelectorAll(".view").forEach(function (v) {
+          v.classList.add("hidden");
+        });
+        var active = document.querySelector('.view[data-route="' + r + '"]');
+        if (active) active.classList.remove("hidden");
+        document.getElementById("page-title").textContent = titles[r];
+        document.querySelectorAll(".nav-item").forEach(function (a) {
+          var on = a.getAttribute("data-route") === r;
+          a.classList.toggle("bg-slate-100", on);
+          a.classList.toggle("text-slate-900", on);
+          a.classList.toggle("font-medium", on);
+        });
+        updatePhonePreview();
+        if (r === "workbench" && typeof refreshPublishPanel === "function") refreshPublishPanel();
+        if ((r === "workbench" || r === "images") && typeof renderStudioStrip === "function") {
+          renderImagePool();
+          renderStudioStrip();
+        }
+        applyFocusMode();
+      }
+
+      function syncFocusHash() {
+        var focus = (getQuery().focus || "").trim().toLowerCase();
+        if (focus && titles[focus]) {
+          var want = "#" + focus;
+          if (window.location.hash !== want) {
+            window.location.hash = want;
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function onHash() {
+        var h = (window.location.hash || "#dash").replace(/^#/, "");
+        if (h === "signals") {
+          history.replaceState(null, "", "#copy");
+          h = "copy";
+        }
+        if (h === "compliance" || h === "library") {
+          history.replaceState(null, "", "#dash");
+          h = "dash";
+        }
+        if (h === "studio" || h === "publish") {
+          history.replaceState(null, "", "#workbench");
+          h = "workbench";
+        }
+        showRoute(h);
+      }
+
+      window.addEventListener("hashchange", onHash);
+      window.addEventListener("load", function () {
+        wireTextSync();
+        if (getQuery().focus && titles[getQuery().focus.trim().toLowerCase()]) {
+          syncFocusHash();
+        } else if (!window.location.hash) {
+          window.location.hash = "#dash";
+        }
+        onHash();
+        wireAssetDemo();
+        applyFocusMode();
+        updatePhonePreview();
+      });
+
+      // Re-apply when only search changes (rare in static demo)
+      var _push = history.pushState;
+      history.pushState = function () {
+        _push.apply(history, arguments);
+        applyFocusMode();
+      };
+
+      function toast(msg) {
+        var t = document.getElementById("toast");
+        t.textContent = msg;
+        t.classList.remove("hidden");
+        clearTimeout(t._h);
+        t._h = setTimeout(function () {
+          t.classList.add("hidden");
+        }, 2200);
+      }
+
+      /** 小红书创作服务平台 · 浏览器端图文笔记发布入口（与左侧编辑区一体发布的目标页） */
+      var XHS_WEB_PUBLISH_IMG_NOTE = "https://creator.xiaohongshu.com/publish/imgNote";
+
+      var mainCopyVersion = "v3";
+      var nextImgId = 4;
+
+      function dataVToPubVer(d) {
+        if (d === "2") return "v2";
+        if (d === "1") return "v1";
+        return "v3";
+      }
+
+      var draftSnapshots = {
+        d1: {
+          copyVersion: "v3",
+          imageIds: [],
+          coverId: null,
+          hint: "本草稿快照：<strong>仅绑定文案 v3</strong>，无图稿；相册请在官方页上传。"
+        },
+        d2: {
+          copyVersion: "v3",
+          imageIds: ["1", "2"],
+          coverId: "1",
+          hint: "本草稿快照：<strong>文案 v3 + 图稿 A/B（封面=A）</strong>；条目内改池不会改写此草稿。"
+        }
+      };
+
+      /** 与「笔记管理」下拉选项 value 对应，用于图文编辑「载入到编辑区」演示 */
+      var studioNoteImportPresets = {
+        "pub-a": {
+          title: "暑假规划｜初一数学这样学不翻车",
+          body:
+            "暑假别只刷题，先定三件事：① 把上学期错题按章节归档；② 每天 25 分钟只做「错题变形」；③ 开学前一周做一套全真限时。\n\n评论区扣「规划」，我把可打印周表发你（演示文案）。"
+        },
+        "pub-b": {
+          title: "错题本这样用才有效",
+          body:
+            "错题本不是抄答案本。有效用法：① 每题写一句「错因标签」；② 周末只做标签里的题；③ 让孩子讲题给你听。\n\n（演示：来自笔记管理「已发布历史」）"
+        },
+        "draft-d1": {
+          title: "草稿 #D1 · 仅文案 v3（演示）",
+          body: "这是笔记管理里「草稿 #D1」的正文占位。载入后可在工作台继续改；发布草稿时请仍用右侧「从草稿发布」核对快照（演示）。"
+        },
+        "draft-d2": {
+          title: "草稿 #D2 · 组合生成（演示）",
+          body: "模拟「草稿 #D2」组合后的正文。图稿仍以条目图稿池为准；若发该草稿，以快照为准（演示）。"
+        }
+      };
+
+      var entryImages = [
+        { id: "1", title: "图稿 A", ver: "v3", inPublish: true, star: true, swatch: "rose" },
+        { id: "2", title: "图稿 B", ver: "v3", inPublish: true, star: false, swatch: "violet" },
+        { id: "3", title: "图稿 C", ver: "v2", inPublish: false, star: false, swatch: "slate" }
+      ];
+
+      function swatchBoxClass(s) {
+        if (s === "rose") return "h-12 w-12 rounded-lg bg-gradient-to-br from-rose-100 to-sky-100 border border-slate-200 shrink-0";
+        if (s === "violet") return "h-12 w-12 rounded-lg bg-gradient-to-br from-violet-100 to-amber-50 border border-slate-200 shrink-0";
+        if (s === "mint") return "h-12 w-12 rounded-lg bg-gradient-to-br from-emerald-100 to-cyan-100 border border-slate-200 shrink-0";
+        return "h-12 w-12 rounded-lg bg-slate-200 border border-slate-300 shrink-0";
+      }
+
+      function swatchLargeClass(s) {
+        if (s === "rose") return "h-20 w-20 rounded-lg bg-gradient-to-br from-rose-100 to-sky-100 shrink-0 relative";
+        if (s === "violet") return "h-20 w-20 rounded-lg bg-gradient-to-br from-violet-100 to-amber-50 shrink-0 relative";
+        if (s === "mint") return "h-20 w-20 rounded-lg bg-gradient-to-br from-emerald-100 to-cyan-100 shrink-0 relative";
+        return "h-20 w-20 rounded-lg bg-slate-200 border border-slate-300 shrink-0 relative";
+      }
+
+      function findImg(id) {
+        for (var i = 0; i < entryImages.length; i++) {
+          if (entryImages[i].id === id) return entryImages[i];
+        }
+        return null;
+      }
+
+      function getOrderedPublishImages() {
+        var out = [];
+        entryImages.forEach(function (img) {
+          if (img.inPublish) out.push(img);
+        });
+        return out;
+      }
+
+      function ensureOneStarAmongPublished() {
+        var pub = getOrderedPublishImages();
+        if (!pub.length) {
+          entryImages.forEach(function (im) {
+            im.star = false;
+          });
+          return;
+        }
+        if (!pub.some(function (x) { return x.star; })) pub[0].star = true;
+        var starCount = pub.filter(function (x) { return x.star; }).length;
+        if (starCount > 1) {
+          var seen = false;
+          pub.forEach(function (x) {
+            if (x.star) {
+              if (seen) x.star = false;
+              else seen = true;
+            }
+          });
+        }
+      }
+
+      function renderImagePool() {
+        ensureOneStarAmongPublished();
+        var ul = document.getElementById("image-pool-list");
+        if (!ul) return;
+        ul.innerHTML = "";
+        entryImages.forEach(function (img, idx) {
+          var li = document.createElement("li");
+          li.className =
+            "pool-row flex items-center gap-2 p-2 rounded-lg border " +
+            (img.inPublish ? "border-slate-100 bg-slate-50" : "border-slate-100");
+          li.setAttribute("data-img-id", img.id);
+          var cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "pub-pick rounded border-slate-300";
+          cb.setAttribute("data-img-id", img.id);
+          if (img.inPublish) cb.checked = true;
+          var ord = document.createElement("span");
+          ord.className = "text-xs w-6 text-center font-mono text-slate-500";
+          ord.textContent = String(idx + 1);
+          var box = document.createElement("div");
+          box.className = swatchBoxClass(img.swatch);
+          var meta = document.createElement("div");
+          meta.className = "flex-1 min-w-0 text-xs truncate " + (img.inPublish ? "text-slate-600" : "text-slate-500");
+          meta.textContent = img.title + " · 来源 " + img.ver + (img.star && img.inPublish ? " · 封面 ★" : "");
+          var cv = document.createElement("input");
+          cv.type = "radio";
+          cv.name = "pool-cover-star";
+          cv.className = "cover-pick rounded-full border-slate-300 text-brand shrink-0";
+          cv.setAttribute("data-img-id", img.id);
+          cv.title = "设为封面";
+          if (img.inPublish && img.star) cv.checked = true;
+          if (!img.inPublish) cv.disabled = true;
+          li.appendChild(cb);
+          li.appendChild(ord);
+          li.appendChild(box);
+          li.appendChild(meta);
+          li.appendChild(cv);
+          ul.appendChild(li);
+        });
+      }
+
+      function renderStudioStrip() {
+        var strip = document.getElementById("studio-img-strip");
+        var cnt = document.getElementById("studio-img-count");
+        if (!strip || !cnt) return;
+        strip.innerHTML = "";
+        var pub = getOrderedPublishImages();
+        cnt.textContent = String(pub.length);
+        pub.forEach(function (img) {
+          var wrap = document.createElement("div");
+          var border = img.star ? " border-2 border-brand ring-2 ring-brand/20" : " border border-slate-200";
+          wrap.className = swatchLargeClass(img.swatch) + border;
+          if (img.star) {
+            var tag = document.createElement("span");
+            tag.className = "absolute bottom-0.5 right-0.5 text-[10px] bg-brand text-white px-1 rounded";
+            tag.textContent = "封";
+            wrap.appendChild(tag);
+          }
+          strip.appendChild(wrap);
+        });
+        var add = document.createElement("a");
+        add.href = "#images";
+        add.className =
+          "h-20 w-20 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-brand hover:text-brand text-2xl font-light flex items-center justify-center shrink-0";
+        add.textContent = "+";
+        strip.appendChild(add);
+        updateCoverUrlRule();
+        updatePhoneFirstVisual(pub);
+      }
+
+      function updatePhoneFirstVisual(pub) {
+        var el = document.getElementById("phone-first-visual");
+        if (!el) return;
+        el.className = "aspect-[3/4] flex items-end justify-center pb-4 text-xs text-slate-500 ";
+        if (!pub.length) {
+          el.classList.add("bg-gradient-to-b", "from-slate-100", "to-slate-50");
+          el.textContent = "首图：无参与发布图稿";
+          return;
+        }
+        var first = pub[0];
+        for (var i = 0; i < pub.length; i++) {
+          if (pub[i].star) {
+            first = pub[i];
+            break;
+          }
+        }
+        el.textContent = "首图预览";
+        if (first.swatch === "rose") el.classList.add("bg-gradient-to-b", "from-rose-100", "to-sky-50");
+        else if (first.swatch === "violet") el.classList.add("bg-gradient-to-b", "from-violet-100", "to-amber-50");
+        else if (first.swatch === "mint") el.classList.add("bg-gradient-to-b", "from-emerald-100", "to-cyan-50");
+        else el.classList.add("bg-gradient-to-b", "from-slate-200", "to-slate-100");
+      }
+
+      function updateCoverUrlRule() {
+        var rule = document.getElementById("cover-url-rule");
+        if (!rule) return;
+        var pub = getOrderedPublishImages();
+        if (pub.length > 0) {
+          rule.innerHTML =
+            "当前有 <strong>" +
+            pub.length +
+            "</strong> 张参与发布图稿：首图以<strong>标星</strong>为准；URL <strong>不参与</strong>相册写入。";
+        } else {
+          rule.innerHTML =
+            "当前<strong>无</strong>参与发布图稿：可填 <strong>封面 URL</strong> 作首图预览占位；发布时相册由官方页上传。";
+        }
+      }
+
+      var publishAdvancedOpen = false;
+
+      function getPublishNoteKey() {
+        var sel = document.getElementById("publish-note-select");
+        return sel ? sel.value : "current";
+      }
+
+      function updatePublishBtnState() {
+        var ok = document.getElementById("publish-preview-ok");
+        var btn = document.getElementById("btn-assist-publish");
+        if (!ok || !btn) return;
+        btn.disabled = !ok.checked;
+      }
+
+      function updatePublishQuickSummary() {
+        var el = document.getElementById("publish-quick-summary");
+        if (!el) return;
+        var key = getPublishNoteKey();
+        if (key === "current") {
+          var pub = getOrderedPublishImages();
+          var cr = "v3";
+          document.querySelectorAll(".pub-copy-radio").forEach(function (r) {
+            if (r.checked) cr = r.value;
+          });
+          el.innerHTML =
+            "将发布 <strong>当前条目 #042</strong> · 文案 <strong>" +
+            cr +
+            "</strong> · 参与发布 <strong>" +
+            pub.length +
+            "</strong> 张图稿（与左侧编辑一致）。";
+        } else if (key === "d1") {
+          el.innerHTML = "将发布 <strong>草稿 #D1</strong>（仅文案快照）；相册请在官方页上传。";
+        } else {
+          el.innerHTML = "将发布 <strong>草稿 #D2</strong>（图文快照）；文案与图以快照为准。";
+        }
+      }
+
+      function refreshPublishPanel() {
+        var key = getPublishNoteKey();
+        var hint = document.getElementById("publish-bind-hint");
+        var ul = document.getElementById("publish-img-summary");
+        var foot = document.getElementById("publish-img-foot");
+        var link = document.getElementById("publish-img-link");
+        var lockHint = document.getElementById("publish-copy-lock-hint");
+        var radios = document.querySelectorAll(".pub-copy-radio");
+        var isLive = key === "current";
+
+        if (hint) {
+          if (key === "current") hint.innerHTML = "";
+          else if (key === "d1") hint.innerHTML = draftSnapshots.d1.hint;
+          else hint.innerHTML = draftSnapshots.d2.hint;
+        }
+        if (lockHint) {
+          if (isLive) {
+            lockHint.classList.add("hidden");
+            lockHint.textContent = "";
+          } else {
+            lockHint.classList.remove("hidden");
+            lockHint.innerHTML =
+              "草稿模式下文案版本已与快照绑定，不可在此切换；需调整请<strong>重新组合草稿</strong>。";
+          }
+        }
+        radios.forEach(function (r) {
+          r.disabled = !isLive;
+        });
+        if (!isLive) {
+          var snap = draftSnapshots[key];
+          if (snap) {
+            var want = snap.copyVersion;
+            radios.forEach(function (r) {
+              r.checked = r.value === want;
+            });
+          }
+        }
+
+        if (ul) {
+          ul.innerHTML = "";
+          if (key === "d1") {
+            var li = document.createElement("li");
+            li.className = "text-slate-500 py-1 text-xs";
+            li.textContent = "（快照无图稿）";
+            ul.appendChild(li);
+          } else if (key === "d2") {
+            draftSnapshots.d2.imageIds.forEach(function (id, i) {
+              var img = findImg(id);
+              if (!img) return;
+              var li = document.createElement("li");
+              li.className = "flex justify-between border-b border-slate-50 py-1";
+              var sp = document.createElement("span");
+              var isCover = draftSnapshots.d2.coverId === id;
+              sp.textContent = i + 1 + " " + img.title + (isCover ? "（封面）" : "");
+              var st = document.createElement("span");
+              st.className = "text-emerald-600 text-xs";
+              st.textContent = "快照";
+              li.appendChild(sp);
+              li.appendChild(st);
+              ul.appendChild(li);
+            });
+          } else {
+            var pub = getOrderedPublishImages();
+            if (!pub.length) {
+              var w = document.createElement("li");
+              w.className = "text-amber-800 text-xs py-1";
+              w.textContent = "未选任何参与发布图稿，发布时相册走官方补传。";
+              ul.appendChild(w);
+            } else {
+              pub.forEach(function (img, i) {
+                var li = document.createElement("li");
+                li.className = "flex justify-between border-b border-slate-50 py-1";
+                var sp = document.createElement("span");
+                sp.textContent = i + 1 + " " + img.title + (img.star ? "（封面）" : "");
+                var st = document.createElement("span");
+                st.className = "text-emerald-600 text-xs";
+                st.textContent = "条目池";
+                li.appendChild(sp);
+                li.appendChild(st);
+                ul.appendChild(li);
+              });
+            }
+          }
+        }
+        if (foot) {
+          foot.textContent = isLive ? "修改勾选请到「图片生成与管理」。" : "改图请回到条目重新「组合生成」以产生新快照。";
+        }
+        if (link) {
+          if (!isLive && key === "d1") {
+            link.classList.add("opacity-40", "pointer-events-none");
+          } else link.classList.remove("opacity-40", "pointer-events-none");
+        }
+        var copyQuick = document.getElementById("publish-copy-quick-wrap");
+        if (copyQuick) copyQuick.classList.toggle("hidden", !isLive);
+        updatePublishQuickSummary();
+        updatePublishBtnState();
+      }
+
+      function bindImagePoolEvents() {
+        var ul = document.getElementById("image-pool-list");
+        if (!ul || ul._deleg) return;
+        ul._deleg = true;
+        ul.addEventListener("change", function (e) {
+          var t = e.target;
+          if (t.classList.contains("pub-pick")) {
+            var id = t.getAttribute("data-img-id");
+            var img = findImg(id);
+            if (img) {
+              img.inPublish = t.checked;
+              if (!img.inPublish) img.star = false;
+              ensureOneStarAmongPublished();
+              renderImagePool();
+              renderStudioStrip();
+              if (getPublishNoteKey() === "current") refreshPublishPanel();
+            }
+          }
+          if (t.classList.contains("cover-pick") && t.checked) {
+            var cid = t.getAttribute("data-img-id");
+            entryImages.forEach(function (im) {
+              im.star = im.id === cid && im.inPublish;
+            });
+            renderImagePool();
+            renderStudioStrip();
+            if (getPublishNoteKey() === "current") refreshPublishPanel();
+          }
+        });
+      }
+
+      function wireAssetDemo() {
+        renderImagePool();
+        renderStudioStrip();
+        refreshPublishPanel();
+        bindImagePoolEvents();
+        var sel = document.getElementById("publish-note-select");
+        if (sel && !sel._wired) {
+          sel._wired = true;
+          sel.addEventListener("change", function () {
+            var key = getPublishNoteKey();
+            var adv = document.getElementById("publish-advanced");
+            var togg = document.getElementById("btn-toggle-advanced-publish");
+            if (key === "current") {
+              publishAdvancedOpen = false;
+              if (adv) adv.classList.add("hidden");
+              if (togg) togg.textContent = "从笔记草稿发布…";
+            } else {
+              publishAdvancedOpen = true;
+              if (adv) adv.classList.remove("hidden");
+            }
+            refreshPublishPanel();
+          });
+        }
+        document.querySelectorAll(".pub-copy-radio").forEach(function (r) {
+          if (r._wired) return;
+          r._wired = true;
+          r.addEventListener("change", function () {
+            if (getPublishNoteKey() !== "current") {
+              var snap = draftSnapshots[getPublishNoteKey()];
+              if (snap)
+                document.querySelectorAll(".pub-copy-radio").forEach(function (x) {
+                  x.checked = x.value === snap.copyVersion;
+                });
+              toast("草稿发布使用快照绑定的文案版本");
+            } else {
+              updatePublishQuickSummary();
+            }
+          });
+        });
+        var prevOk = document.getElementById("publish-preview-ok");
+        if (prevOk && !prevOk._wired) {
+          prevOk._wired = true;
+          prevOk.addEventListener("change", updatePublishBtnState);
+        }
+        var toggAdv = document.getElementById("btn-toggle-advanced-publish");
+        if (toggAdv && !toggAdv._wired) {
+          toggAdv._wired = true;
+          toggAdv.addEventListener("click", function () {
+            var adv = document.getElementById("publish-advanced");
+            if (!adv) return;
+            if (publishAdvancedOpen && getPublishNoteKey() !== "current") {
+              toast("从草稿发布时请保持高级区展开以便核对");
+              return;
+            }
+            publishAdvancedOpen = !publishAdvancedOpen;
+            adv.classList.toggle("hidden", !publishAdvancedOpen);
+            toggAdv.textContent = publishAdvancedOpen ? "收起草稿发布选项" : "从笔记草稿发布…";
+            if (publishAdvancedOpen) adv.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+        }
+        var curl = document.getElementById("studio-cover-url");
+        if (curl && !curl._wired) {
+          curl._wired = true;
+          curl.addEventListener("input", function () {
+            updateCoverUrlRule();
+          });
+        }
+        var toImg = document.getElementById("btn-studio-add-img");
+        if (toImg && !toImg._wired) {
+          toImg._wired = true;
+          toImg.addEventListener("click", function (e) {
+            e.preventDefault();
+            window.location.hash = "#images";
+          });
+        }
+        var btnImport = document.getElementById("btn-studio-import-note");
+        var selImport = document.getElementById("studio-notes-import-select");
+        if (btnImport && selImport && !btnImport._wired) {
+          btnImport._wired = true;
+          btnImport.addEventListener("click", function () {
+            var key = (selImport.value || "").trim();
+            if (!key) {
+              toast("请先在列表里选一条笔记");
+              return;
+            }
+            var p = studioNoteImportPresets[key];
+            if (!p) {
+              toast("未找到该笔记的演示数据");
+              return;
+            }
+            var st = document.getElementById("studio-title");
+            var sb = document.getElementById("studio-body");
+            if (st) st.value = p.title;
+            if (sb) sb.value = p.body;
+            syncStudioToCopy();
+            updatePhonePreview();
+            if (typeof updatePublishQuickSummary === "function" && getPublishNoteKey() === "current") updatePublishQuickSummary();
+            var label = selImport.options[selImport.selectedIndex];
+            toast("已载入：" + (label ? label.textContent.trim() : key));
+          });
+        }
+      }
+
+      document.getElementById("btn-save-draft").addEventListener("click", function () {
+        toast("已保存草稿（演示）");
+      });
+      document.getElementById("btn-open-template-modal").addEventListener("click", function () {
+        document.getElementById("modal-templates").classList.remove("hidden");
+      });
+      document.getElementById("modal-close").addEventListener("click", function () {
+        document.getElementById("modal-templates").classList.add("hidden");
+      });
+      document.getElementById("modal-templates").addEventListener("click", function (e) {
+        if (e.target.id === "modal-templates") document.getElementById("modal-templates").classList.add("hidden");
+      });
+      document.querySelectorAll(".tpl-pick").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          document.getElementById("template-label").textContent = btn.getAttribute("data-name");
+          document.getElementById("modal-templates").classList.add("hidden");
+          toast("已切换模版");
+        });
+      });
+
+      document.getElementById("btn-fetch-competitor").addEventListener("click", function () {
+        toast("拉取竞品正文需合法授权（演示）");
+      });
+      document.getElementById("btn-new-template").addEventListener("click", function () {
+        toast("打开模版编辑器（演示）");
+      });
+      document.getElementById("btn-sync-xhs").addEventListener("click", function () {
+        toast("已排队同步历史笔记（示意，依赖官方/授权数据源）");
+      });
+      document.getElementById("btn-open-compose").addEventListener("click", function () {
+        document.getElementById("modal-compose").classList.remove("hidden");
+      });
+      document.getElementById("modal-compose-close").addEventListener("click", function () {
+        document.getElementById("modal-compose").classList.add("hidden");
+      });
+      document.getElementById("modal-compose").addEventListener("click", function (e) {
+        if (e.target.id === "modal-compose") document.getElementById("modal-compose").classList.add("hidden");
+      });
+      document.getElementById("modal-compose-confirm").addEventListener("click", function () {
+        document.getElementById("modal-compose").classList.add("hidden");
+        toast("已生成新草稿 #D3 并加入笔记管理（演示）");
+      });
+      document.querySelectorAll(".notes-tab").forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          var t = tab.getAttribute("data-tab");
+          document.querySelectorAll(".notes-tab").forEach(function (x) {
+            x.classList.remove("bg-slate-900", "text-white");
+            x.classList.add("text-slate-600", "hover:bg-slate-100");
+          });
+          tab.classList.add("bg-slate-900", "text-white");
+          tab.classList.remove("text-slate-600", "hover:bg-slate-100");
+          document.getElementById("notes-panel-hist").classList.toggle("hidden", t !== "hist");
+          document.getElementById("notes-panel-draft").classList.toggle("hidden", t !== "draft");
+        });
+      });
+      document.getElementById("btn-generate-copy").addEventListener("click", function () {
+        toast("已生成 v4 文案并写入条目主文案与工作台编辑区（演示）");
+        syncCopyToStudio();
+        if (typeof updatePublishQuickSummary === "function" && getPublishNoteKey() === "current") updatePublishQuickSummary();
+      });
+      document.getElementById("btn-gen-image").addEventListener("click", function () {
+        if (entryImages.length >= 18) {
+          toast("已达条目图稿上限 18（演示）");
+          return;
+        }
+        var newId = String(nextImgId++);
+        entryImages.push({
+          id: newId,
+          title: "图稿 新 " + newId,
+          ver: mainCopyVersion,
+          inPublish: true,
+          star: false,
+          swatch: "mint"
+        });
+        ensureOneStarAmongPublished();
+        var el = document.getElementById("image-preview");
+        if (el) {
+          el.classList.remove("from-rose-100", "to-sky-100");
+          el.classList.add("from-violet-100", "to-amber-50");
+        }
+        renderImagePool();
+        renderStudioStrip();
+        if (getPublishNoteKey() === "current") refreshPublishPanel();
+        toast("新图稿已入池（来源 " + mainCopyVersion + "），已勾选参与发布（演示）");
+      });
+      document.querySelectorAll(".version-item").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          document.querySelectorAll(".version-item").forEach(function (b) {
+            b.classList.remove("bg-slate-100", "font-medium");
+            b.classList.add("text-slate-600");
+          });
+          btn.classList.add("bg-slate-100", "font-medium");
+          btn.classList.remove("text-slate-600");
+          mainCopyVersion = dataVToPubVer(btn.getAttribute("data-v"));
+          toast("已切换主文案 " + mainCopyVersion + "；此后生图将带该版本标签（演示）");
+          syncCopyToStudio();
+          if (getPublishNoteKey() === "current") updatePublishQuickSummary();
+        });
+      });
+      document.getElementById("tab-preview-note").addEventListener("click", function () {
+        document.getElementById("phone-preview-note").classList.remove("hidden");
+        document.getElementById("phone-preview-cover").classList.add("hidden");
+        document.getElementById("tab-preview-note").className = "flex-1 py-2 rounded-md bg-slate-900 text-white";
+        document.getElementById("tab-preview-cover").className = "flex-1 py-2 rounded-md text-slate-600 hover:bg-slate-50";
+      });
+      document.getElementById("tab-preview-cover").addEventListener("click", function () {
+        document.getElementById("phone-preview-note").classList.add("hidden");
+        document.getElementById("phone-preview-cover").classList.remove("hidden");
+        document.getElementById("tab-preview-cover").className = "flex-1 py-2 rounded-md bg-slate-900 text-white";
+        document.getElementById("tab-preview-note").className = "flex-1 py-2 rounded-md text-slate-600 hover:bg-slate-50";
+      });
+
+      document.getElementById("btn-assist-publish").addEventListener("click", function () {
+        var ok = document.getElementById("publish-preview-ok");
+        if (!ok || !ok.checked) {
+          toast("请先勾选「已核对预览」再发布");
+          return;
+        }
+        var key = getPublishNoteKey();
+        var st = document.getElementById("studio-title");
+        var sb = document.getElementById("studio-body");
+        var title = (st && st.value) ? String(st.value).trim() : "";
+        var body = (sb && sb.value) ? String(sb.value).trim() : "";
+        var clipPayload = title + (title && body ? "\n\n" : "") + body;
+
+        var win = window.open(XHS_WEB_PUBLISH_IMG_NOTE, "_blank", "noopener,noreferrer");
+        if (!win) {
+          toast("未能打开新标签：请在浏览器中允许本站弹出窗口后重试");
+          return;
+        }
+
+        function toastAfterPublish(clipboardOk) {
+          var parts = [];
+          parts.push("已打开小红书图文笔记发布页（网页版）。");
+          if (key === "d1") parts.push("当前为草稿 #D1 仅文案快照：请在网页端粘贴并上传图片。");
+          else if (key === "d2") parts.push("当前为草稿 #D2：请按快照在网页端核对文案与图片。");
+          else if (getOrderedPublishImages().length === 0) parts.push("当前无参与发布图稿：请在网页端上传图片。");
+          if (clipboardOk && clipPayload) parts.push("标题与正文已复制到剪贴板，可在创作页粘贴。");
+          else if (clipPayload) parts.push("若剪贴板未授权，请从左侧编辑区手动复制标题与正文。");
+          else parts.push("请先在左侧填写标题与正文。");
+          parts.push("在官网登录后完成发布。");
+          toast(parts.join(""));
+        }
+
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function" && clipPayload) {
+          navigator.clipboard.writeText(clipPayload).then(
+            function () {
+              toastAfterPublish(true);
+            },
+            function () {
+              toastAfterPublish(false);
+            }
+          );
+        } else {
+          toastAfterPublish(false);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

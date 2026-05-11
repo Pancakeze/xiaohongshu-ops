@@ -1,0 +1,39 @@
+# 环境变量与密钥（*.example 模板可提交；勿提交真实 .env）
+.env
+*.pem
+*.crx
+
+# 个人维护的小红书运营素材（不入库）
+/day01/
+/day02/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / 前端构建产物
+node_modules/
+apps/web/dist/
+
+# 扩展：构建产物与依赖（源码在 src/，加载扩展用 npm run build 生成 dist）
+extensions/xhs-publish-bridge/dist/
+extensions/xhs-publish-bridge/node_modules/
+
+# 本地上传（保留目录占位见 apps/api/.gitignore）
+apps/api/data/uploads/*
+!apps/api/data/uploads/.gitkeep
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+
+# 日志
+*.log
+npm-debug.log*
