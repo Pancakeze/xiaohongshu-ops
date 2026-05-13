@@ -14,6 +14,12 @@ export default defineConfig({
       port: 5173,
       overlay: true,
     },
+    // macOS / 部分文件系统下，原生 fs events 偶发丢事件；开启 polling 兜底确保修改必触发 HMR。
+    watch: {
+      usePolling: true,
+      interval: 120,
+      ignored: ['**/node_modules/**', '**/.git/**', '**/dist/**'],
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

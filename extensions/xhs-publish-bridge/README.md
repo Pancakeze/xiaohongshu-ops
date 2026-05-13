@@ -47,6 +47,10 @@ chrome.runtime.sendMessage(
 
 生产环境请把真实运营台域名加入 `manifest.json` → `externally_connectable.matches`（不支持通配任意域，需写清单）。
 
+**P0-5（推荐）：** 构建时设置环境变量 **`XHS_BRIDGE_APP_ORIGINS`**（逗号分隔的 `https://` origin），`npm run build` 会写入 **`dist/manifest.json`**。详见仓库 **[`annex/p0-5-externally-connectable.md`](../../annex/p0-5-externally-connectable.md)**。
+
+**P0-4：** 选择器校准记录与回归清单见 **[`annex/p0-4-selector-calibration.md`](../../annex/p0-4-selector-calibration.md)**。
+
 **v0.1.1 扩展侧修复：** 复用创作标签 `update(url)` 时不再误把「旧页已 complete」当成新页已就绪；`FILL_DOM` 对「内容脚本尚未注入」类错误自动重试；标题/正文/文件框/「上传图文」在 **open ShadowRoot** 内也会查找（仍无法穿透 **closed** shadow）。
 
 **v0.1.2 填表逻辑：** 标题/正文对 `input`/`textarea` 使用 **原生 `value` setter**（避免 React 受控组件只见 DOM、state 仍空，进而 `fe.xiaohongshu.com` `json-to-proto` **400**）；`contenteditable` 正文优先 `execCommand('insertText')`。
@@ -55,7 +59,7 @@ chrome.runtime.sendMessage(
 
 **v0.1.4 稳定性：** `MutationObserver` **不再**监听 `attributes`/`characterData`（会与创作页受控输入形成死循环，导致页面长期「加载中」）；仅在 **`childList`** 变化时防抖补写，且 **DOM 已与目标标题/正文一致时立即断开**，并限制补写次数。
 
-**v0.1.5：** 按正文里 **`#话题` 个数** 收紧 observer：**≤2 个**时最多补写 **2** 次、观察约 **20s**；3–5 个话题 **5** 次 / **36s**；更多仍为 **10** 次 / **48s**（与传入的 `durationMs` 取较小值）。
+**v0.1.6：** 构建脚本支持 **`XHS_BRIDGE_APP_ORIGINS`** 合并 `externally_connectable`（P0-5）；标题/正文增加 **`aria-label*`** 兜底选择器（P0-4）。
 
 ### 与控制台报错对照（排查用）
 

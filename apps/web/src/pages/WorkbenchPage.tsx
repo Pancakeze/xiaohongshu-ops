@@ -7,20 +7,28 @@ import {
   apiPatch,
   apiPost,
   apiUploadEntryImage,
+  type ComposedDraftRow,
+  type CopyVersion,
   type DraftImage,
   type EntryDetail,
   type EntrySummary,
+  type PublishAttemptRow,
+  type PublishedNote,
 } from '../lib/api'
+import { persistCurrentEntryId, resolveCurrentEntryId } from '../lib/currentEntry'
 import {
   formatBodyForXhsPublish,
   getBridgeExtensionId,
   parseTopicsInput,
   persistBridgeExtensionId,
   publishClipboardFallback,
+  summarizeBridgeResponseForLog,
   topicsListsEqual,
   tryExtensionPublish,
   tryPingBridgeExtension,
 } from '../lib/publishBridge'
+
+type NoteImportOpt = { key: string; label: string; title: string; body: string }
 
 export function WorkbenchPage() {
   const [entryId, setEntryId] = useState<string | null>(null)
@@ -32,11 +40,18 @@ export function WorkbenchPage() {
   const [extIdInput, setExtIdInput] = useState('')
   const [confirmPublish, setConfirmPublish] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [publishDebug, setPublishDebug] = useState<string | null>(null)
+  const [showPublishDebug, setShowPublishDebug] = useState(false)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [newUrl, setNewUrl] = useState('')
   const [uploadingLocal, setUploadingLocal] = useState(false)
   const [previewTab, setPreviewTab] = useState<'note' | 'cover'>('note')
+  const [noteImportKey, setNoteImportKey] = useState('')
+  const [noteImportLoading, setNoteImportLoading] = useState(false)
+  const [noteImportBusy, setNoteImportBusy] = useState(false)
+  const [noteImportOptions, setNoteImportOptions] = useState<NoteImportOpt[]>([])
+  const [copyVersions, setCopyVersions] = useState<CopyVersion[]>([])
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const localFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -45,9 +60,67 @@ export function WorkbenchPage() {
     setTimeout(() => setToast(null), 2600)
   }, [])
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('xhs:last_publish_debug')
+      if (saved && saved.trim()) setPublishDebug(saved)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      setShowPublishDebug(localStorage.getItem('xhs:show_publish_debug') === '1')
+    } catch {
+      setShowPublishDebug(false)
+    }
+  }, [])
+
+  const persistPublishDebug = useCallback((v: string | null) => {
+    setPublishDebug(v)
+    try {
+      if (v) localStorage.setItem('xhs:last_publish_debug', v)
+      else localStorage.removeItem('xhs:last_publish_debug')
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const optionalPublishClientHints = useCallback((): Record<string, unknown> | undefined => {
+    const tag = import.meta.env.VITE_WEB_BUILD_TAG
+    if (typeof tag === 'string' && tag.trim()) return { web_build: tag.trim() }
+    return undefined
+  }, [])
+
+  const logPublishAttempt = useCallback(
+    (body: {
+      outcome: 'extension_success' | 'clipboard_fallback'
+      extension_error?: string
+      bridge_payload?: Record<string, unknown>
+    }) => {
+      if (!entryId) return
+      const payload: Record<string, unknown> = {
+        outcome: body.outcome,
+        extension_error: body.extension_error ?? null,
+        bridge_payload: body.bridge_payload ?? null,
+      }
+      const hints = optionalPublishClientHints()
+      if (hints) payload.client_hints = hints
+      void apiPost<PublishAttemptRow>(`/api/entries/${entryId}/publish-attempts`, payload).catch(
+        () => {},
+      )
+    },
+    [entryId, optionalPublishClientHints],
+  )
+
   const reloadEntry = useCallback(async (id: string) => {
-    const d = await apiGet<EntryDetail>(`/api/entries/${id}`)
+    const [d, vers] = await Promise.all([
+      apiGet<EntryDetail>(`/api/entries/${id}`),
+      apiGet<CopyVersion[]>(`/api/entries/${id}/copy-versions`),
+    ])
     setEntry(d)
+    setCopyVersions(vers)
     setTitle(d.title)
     setBody(d.body)
     setTopicsInput((d.topics && d.topics.length ? d.topics : []).join('\n'))
@@ -64,6 +137,9 @@ export function WorkbenchPage() {
           topics: nextTopics,
         })
         setEntry(d)
+        window.dispatchEvent(
+          new CustomEvent('xhs:entry-updated', { detail: { entryId } }),
+        )
       } catch (e) {
         showToast(e instanceof Error ? e.message : '保存失败')
       } finally {
@@ -84,7 +160,9 @@ export function WorkbenchPage() {
           setLoadErr('暂无条目，请检查 API 种子数据')
           return
         }
-        const id = list[0].id
+        const resolved = await resolveCurrentEntryId()
+        const id =
+          resolved && list.some((e) => e.id === resolved) ? resolved : list[0].id
         setEntryId(id)
         await reloadEntry(id)
       } catch (e) {
@@ -95,6 +173,68 @@ export function WorkbenchPage() {
       cancelled = true
     }
   }, [reloadEntry])
+
+  useEffect(() => {
+    if (entryId) persistCurrentEntryId(entryId)
+  }, [entryId])
+
+  useEffect(() => {
+    if (!entryId) return
+    const onUpdated = (ev: Event) => {
+      const e = ev as CustomEvent<{ entryId?: string }>
+      if (e.detail?.entryId && e.detail.entryId !== entryId) return
+      void reloadEntry(entryId)
+    }
+    window.addEventListener('xhs:entry-updated', onUpdated)
+    return () => window.removeEventListener('xhs:entry-updated', onUpdated)
+  }, [entryId, reloadEntry])
+
+  useEffect(() => {
+    if (!entryId) return
+    let cancelled = false
+    setNoteImportLoading(true)
+    ;(async () => {
+      try {
+        const [pub, drafts] = await Promise.all([
+          apiGet<PublishedNote[]>('/api/notes/published'),
+          apiGet<ComposedDraftRow[]>('/api/notes/composed-drafts'),
+        ])
+        if (cancelled) return
+        const opts: NoteImportOpt[] = []
+        for (const p of pub) {
+          const t = (p.title || '').trim() || '（无标题）'
+          opts.push({
+            key: `pub:${p.id}`,
+            label: `[已发布] ${t.slice(0, 40)}${t.length > 40 ? '…' : ''}`,
+            title: p.title || '',
+            body: p.body ?? '',
+          })
+        }
+        for (const d of drafts) {
+          const t = (d.snapshot_title || '').trim() || '（无标题）'
+          const et = (d.entry_title || '').trim().slice(0, 12)
+          opts.push({
+            key: `cmp:${d.id}`,
+            label: `[组合草稿 · ${et}] ${t.slice(0, 28)}${t.length > 28 ? '…' : ''}`,
+            title: d.snapshot_title || '',
+            body: d.snapshot_body ?? '',
+          })
+        }
+        setNoteImportOptions(opts)
+        setNoteImportKey('')
+      } catch {
+        if (!cancelled) {
+          setNoteImportOptions([])
+          setNoteImportKey('')
+        }
+      } finally {
+        if (!cancelled) setNoteImportLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [entryId])
 
   useEffect(() => {
     setExtIdInput(getBridgeExtensionId(''))
@@ -124,10 +264,70 @@ export function WorkbenchPage() {
     return () => window.removeEventListener('xhs:save-draft', onDraft)
   }, [title, body, topicsInput, patchEntry, showToast])
 
+  const loadFromNoteImport = useCallback(async () => {
+    if (!entryId || !entry) return
+    const sel = noteImportOptions.find((o) => o.key === noteImportKey)
+    if (!sel) {
+      showToast('请先在下拉框中选择一条笔记')
+      return
+    }
+    const dirty = title !== entry.title || body !== entry.body
+    setNoteImportBusy(true)
+    try {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      const topicList = parseTopicsInput(topicsInput)
+      setSaving(true)
+      const d = await apiPatch<EntryDetail>(`/api/entries/${entryId}`, {
+        title: sel.title,
+        body: sel.body,
+        topics: topicList,
+      })
+      setEntry(d)
+      setTitle(d.title)
+      setBody(d.body)
+      window.dispatchEvent(
+        new CustomEvent('xhs:entry-updated', { detail: { entryId } }),
+      )
+      showToast(
+        dirty
+          ? '已载入标题与正文（未保存的编辑已覆盖；图稿池与话题未变）。已与主文案版本同步。'
+          : '已载入标题与正文（图稿池与话题未变）。已与主文案版本同步。',
+      )
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '载入失败')
+    } finally {
+      setSaving(false)
+      setNoteImportBusy(false)
+    }
+  }, [
+    entryId,
+    entry,
+    noteImportKey,
+    noteImportOptions,
+    title,
+    body,
+    topicsInput,
+    showToast,
+  ])
+
   const sortedImages = useMemo(() => {
     if (!entry?.images) return []
     return [...entry.images].sort((a, b) => a.sort_order - b.sort_order)
   }, [entry])
+
+  const poolLimit = entry?.draft_image_pool_limit ?? 18
+
+  const copyVersionOrdinal = useCallback(
+    (cvId: string | null | undefined) => {
+      if (!cvId) return null
+      const asc = [...copyVersions].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      )
+      const i = asc.findIndex((v) => v.id === cvId)
+      return i >= 0 ? i + 1 : null
+    },
+    [copyVersions],
+  )
 
   const publishImages = useMemo(() => {
     return sortedImages
@@ -175,15 +375,60 @@ export function WorkbenchPage() {
       .filter(Boolean)
     tryExtensionPublish(extId, title, publishBody, (r) => {
       if (r.ok) {
-        showToast(
-          parseTopicsInput(topicsInput).length
-            ? '扩展已打开创作页并尝试填入标题与正文（含 # 话题；发布仍须在小红书侧自行确认）。'
-            : '扩展已打开创作页并尝试填入标题/正文（无法代你点小红书「发布」，请在创作页核对后自行发布）。',
+        logPublishAttempt({
+          outcome: 'extension_success',
+          bridge_payload: summarizeBridgeResponseForLog(r.response),
+        })
+        const resp = r.response as any
+        const filled = resp?.result?.filled
+        const imageOk = Boolean(filled?.image_upload)
+        const wroteTitle = Boolean(filled?.title)
+        const wroteBody = Boolean(filled?.body)
+        const detail = typeof resp?.result?.detail === 'string' ? String(resp.result.detail) : ''
+        const topicHint = parseTopicsInput(topicsInput).length ? '（含 # 话题）' : ''
+        persistPublishDebug(
+          JSON.stringify(
+            {
+              ok: true,
+              filled: filled || null,
+              detail: detail || null,
+              tabId: typeof resp?.tabId === 'number' ? resp.tabId : null,
+              at: new Date().toISOString(),
+            },
+            null,
+            2,
+          ),
         )
+        if (!imageOk) {
+          showToast(
+            `扩展已打开创作页并尝试写入标题/正文${topicHint}；但图片未自动触发上传（${detail || '请在创作页点「上传图片」'}）。`,
+          )
+        } else if (!wroteTitle && !wroteBody) {
+          showToast(
+            `扩展已打开创作页但未找到标题/正文输入框（${detail || '可能是创作页改版，需要更新选择器'}）。`,
+          )
+        } else {
+          showToast(
+            topicHint
+              ? '扩展已打开创作页并尝试填入标题与正文（含 # 话题；发布仍须在小红书侧自行确认）。'
+              : '扩展已打开创作页并尝试填入标题/正文（无法代你点小红书「发布」，请在创作页核对后自行发布）。',
+          )
+        }
         return
       }
       const hint = r.reason.length > 120 ? `${r.reason.slice(0, 120)}…` : r.reason
+      persistPublishDebug(
+        JSON.stringify(
+          { ok: false, reason: r.reason, response: (r as any).response ?? null, at: new Date().toISOString() },
+          null,
+          2,
+        ),
+      )
       showToast(`扩展未接通：${hint}。将打开创作页并尝试剪贴板降级。`)
+      logPublishAttempt({
+        outcome: 'clipboard_fallback',
+        extension_error: r.reason,
+      })
       publishClipboardFallback(
         title,
         body,
@@ -213,13 +458,20 @@ export function WorkbenchPage() {
 
   const addImage = async () => {
     if (!entryId || !newUrl.trim()) return
+    if (sortedImages.length >= poolLimit) {
+      showToast(`图稿池已满（${poolLimit} 张）`)
+      return
+    }
+    const primaryId = copyVersions.find((v) => v.is_primary)?.id ?? copyVersions[0]?.id
     try {
       await apiPost<DraftImage>(`/api/entries/${entryId}/images`, {
         public_url: newUrl.trim(),
         include_in_publish: true,
+        ...(primaryId ? { source_copy_version_id: primaryId } : {}),
       })
       setNewUrl('')
       await reloadEntry(entryId)
+      window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
       showToast('已添加配图')
     } catch (e) {
       showToast(e instanceof Error ? e.message : '添加失败')
@@ -229,19 +481,34 @@ export function WorkbenchPage() {
   const onLocalFilesChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!entryId || !files?.length) return
+    const arr = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (!arr.length) {
+      showToast('请选择图片文件')
+      e.target.value = ''
+      return
+    }
+    const room = poolLimit - sortedImages.length
+    if (room <= 0) {
+      showToast(`图稿池已满（${poolLimit} 张）`)
+      e.target.value = ''
+      return
+    }
+    const batch = arr.slice(0, room)
+    if (batch.length < arr.length) {
+      showToast(`仅余 ${room} 个空位，已截取前 ${room} 张`)
+    }
+    const primaryId = copyVersions.find((v) => v.is_primary)?.id ?? copyVersions[0]?.id
     setUploadingLocal(true)
     try {
       let n = 0
-      for (const f of Array.from(files)) {
-        if (!f.type.startsWith('image/')) continue
-        await apiUploadEntryImage(entryId, f)
+      for (const f of batch) {
+        await apiUploadEntryImage(entryId, f, { sourceCopyVersionId: primaryId ?? undefined })
         n += 1
       }
       if (n) {
         await reloadEntry(entryId)
+        window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
         showToast(`已上传 ${n} 张本地图片`)
-      } else {
-        showToast('请选择图片文件')
       }
     } catch (err) {
       showToast(err instanceof Error ? err.message : '上传失败')
@@ -258,6 +525,7 @@ export function WorkbenchPage() {
         include_in_publish: !img.include_in_publish,
       })
       await reloadEntry(entryId)
+      window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
     } catch (e) {
       showToast(e instanceof Error ? e.message : '更新失败')
     }
@@ -270,6 +538,7 @@ export function WorkbenchPage() {
         is_cover: true,
       })
       await reloadEntry(entryId)
+      window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
     } catch (e) {
       showToast(e instanceof Error ? e.message : '更新失败')
     }
@@ -280,6 +549,7 @@ export function WorkbenchPage() {
     try {
       await apiDelete(`/api/entries/${entryId}/images/${img.id}`)
       await reloadEntry(entryId)
+      window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
       showToast('已移除')
     } catch (e) {
       showToast(e instanceof Error ? e.message : '删除失败')
@@ -341,22 +611,33 @@ export function WorkbenchPage() {
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/90 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                 <div className="min-w-0 flex-1 sm:min-w-[220px]">
-                  <label className="mb-1 block text-xs text-slate-500">从笔记管理选择笔记，填充标题与正文</label>
+                  <label className="mb-1 block text-xs text-slate-500">
+                    从笔记管理选择笔记，仅填充标题与正文（不替换图稿池）
+                  </label>
                   <select
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-400"
-                    disabled
-                    defaultValue=""
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 disabled:opacity-60"
+                    disabled={noteImportLoading || noteImportBusy}
+                    value={noteImportKey}
+                    onChange={(e) => setNoteImportKey(e.target.value)}
                   >
-                    <option value="">— 请选择笔记 —</option>
+                    <option value="">
+                      {noteImportLoading ? '加载笔记列表…' : '— 请选择已发布历史或组合草稿 —'}
+                    </option>
+                    {noteImportOptions.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-                    disabled
+                    disabled={!noteImportKey || noteImportLoading || noteImportBusy}
+                    onClick={() => void loadFromNoteImport()}
                   >
-                    载入到编辑区
+                    {noteImportBusy ? '载入中…' : '载入到编辑区'}
                   </button>
                   <Link to="/notes" className="whitespace-nowrap text-xs font-medium text-brand hover:underline">
                     去笔记管理
@@ -364,7 +645,8 @@ export function WorkbenchPage() {
                 </div>
               </div>
               <p className="text-xs text-slate-400">
-                示意：拉取笔记管理中的标题与正文；图稿仍以「图片生成与管理」图稿池为准，载入后可在下方继续改。
+                与 PRD §5.4 一致：仅写入标题与正文；当前条目的图稿池不变。保存后与「文案生成」主版本（CopyVersion
+                is_primary）同源同步。
               </p>
             </div>
 
@@ -373,7 +655,7 @@ export function WorkbenchPage() {
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-800">图片编辑</span>
                 <span className="text-xs text-slate-500">
-                  {sortedImages.filter((i) => i.include_in_publish).length}/18 · 参与发布
+                  {sortedImages.filter((i) => i.include_in_publish).length}/{poolLimit} · 参与发布
                 </span>
               </div>
               <div className="flex min-h-[5.5rem] flex-wrap items-center gap-2">
@@ -390,6 +672,11 @@ export function WorkbenchPage() {
                       {img.is_cover && (
                         <span className="absolute bottom-0.5 left-0.5 rounded bg-amber-400 px-0.5 text-[9px] text-amber-950">
                           封
+                        </span>
+                      )}
+                      {copyVersionOrdinal(img.source_copy_version_id) != null && (
+                        <span className="absolute left-0.5 top-0.5 rounded bg-slate-900/80 px-0.5 text-[8px] text-white">
+                          v{copyVersionOrdinal(img.source_copy_version_id)}
                         </span>
                       )}
                     </button>
@@ -583,6 +870,54 @@ export function WorkbenchPage() {
             <p className="mt-2 text-[0.7rem] leading-relaxed text-slate-400">
               若已填写下方<strong>扩展 ID</strong>且已加载桥接扩展：由扩展打开创作页并尝试<strong>直接写入</strong>标题与正文。否则：新标签打开创作页，并将标题、正文与配图清单写入<strong>剪贴板</strong>。
             </p>
+            {showPublishDebug ? (
+              <details className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[0.7rem] text-slate-600">
+                <summary className="cursor-pointer select-none font-medium text-slate-700">
+                  发布调试信息（复制给开发排查）
+                </summary>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded border border-slate-200 bg-white px-2 py-1 text-[0.65rem] text-slate-700 hover:bg-slate-50"
+                    onClick={() => {
+                      if (!publishDebug) return
+                      if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(publishDebug)
+                      showToast('已复制发布调试信息')
+                    }}
+                    disabled={!publishDebug}
+                  >
+                    复制
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate-200 bg-white px-2 py-1 text-[0.65rem] text-slate-700 hover:bg-slate-50"
+                    onClick={() => persistPublishDebug(null)}
+                  >
+                    清空
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate-200 bg-white px-2 py-1 text-[0.65rem] text-slate-700 hover:bg-slate-50"
+                    onClick={() => {
+                      try {
+                        localStorage.removeItem('xhs:show_publish_debug')
+                      } catch {
+                        /* ignore */
+                      }
+                      setShowPublishDebug(false)
+                    }}
+                  >
+                    隐藏
+                  </button>
+                  <span className="text-[0.65rem] text-slate-400">
+                    提示：点击「发布到小红书」后会自动更新此处
+                  </span>
+                </div>
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[0.65rem] text-slate-600">
+                  {publishDebug || '（暂无）'}
+                </pre>
+              </details>
+            ) : null}
             <div className="mt-3 border-t border-slate-200/90 pt-3">
               <label htmlFor="xhs-bridge-ext-id" className="mb-1 block text-xs text-slate-500">
                 Chrome 扩展 ID（<code className="text-[0.65rem]">xhs-publish-bridge</code>，可选）

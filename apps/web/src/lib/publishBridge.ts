@@ -95,7 +95,26 @@ export function buildPublishClipboardPayload(
 
 export type ExtensionPublishResult =
   | { ok: true; response: unknown }
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; response?: unknown }
+
+/** 写入 PublishAttempt.bridge_payload：不含标题/正文全文，仅扩展回包摘要 */
+export function summarizeBridgeResponseForLog(response: unknown): Record<string, unknown> | undefined {
+  if (!response || typeof response !== 'object') return undefined
+  const r = response as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  if (typeof r.tabId === 'number') out.tabId = r.tabId
+  const inner = r.result
+  if (inner && typeof inner === 'object') {
+    const fr = inner as Record<string, unknown>
+    const filled = fr.filled
+    out.fill = {
+      ok: Boolean(fr.ok),
+      detail: typeof fr.detail === 'string' ? fr.detail.slice(0, 500) : undefined,
+      filled: filled && typeof filled === 'object' ? filled : undefined,
+    }
+  }
+  return Object.keys(out).length ? out : undefined
+}
 
 /** 外连扩展心跳：与 `extensions/xhs-publish-bridge` 的 `PING` 一致 */
 export function tryPingBridgeExtension(
@@ -155,11 +174,11 @@ export function tryExtensionPublish(
   options?: ExtensionPublishOptions,
 ): void {
   if (!extId) {
-    onDone({ ok: false, reason: 'no_extension_id' })
+    onDone({ ok: false, reason: 'no_extension_id', response: null })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, reason: 'no_chrome_runtime' })
+    onDone({ ok: false, reason: 'no_chrome_runtime', response: null })
     return
   }
   const payload: { title: string; body: string; firstImageUrl?: string; imageUrls?: string[] } = {
@@ -185,17 +204,197 @@ export function tryExtensionPublish(
     chrome.runtime.sendMessage(extId, msg, (response: unknown) => {
       const errMsg = chrome.runtime.lastError?.message
       if (errMsg) {
-        onDone({ ok: false, reason: errMsg })
+        onDone({ ok: false, reason: errMsg, response: null })
         return
       }
-      const resp = response as { ok?: boolean; error?: string; detail?: string } | null
+      const resp =
+        (response && typeof response === 'object' ? (response as Record<string, unknown>) : null) || null
       if (resp && resp.ok) {
         onDone({ ok: true, response })
         return
       }
+      // 扩展通常返回 { ok:false, error?: string }；但 fillOnTab 失败时会回 { ok:false, result:{ detail } }
+      const maybeResult = resp?.result
+      const nestedDetail =
+        maybeResult && typeof maybeResult === 'object' && typeof (maybeResult as any).detail === 'string'
+          ? String((maybeResult as any).detail)
+          : undefined
       onDone({
         ok: false,
-        reason: (resp && (resp.error || resp.detail)) || 'extension_failed',
+        reason:
+          (resp && (typeof resp.error === 'string' ? resp.error : undefined)) ||
+          (resp && (typeof resp.detail === 'string' ? resp.detail : undefined)) ||
+          nestedDetail ||
+          'extension_failed',
+        response,
+      })
+    })
+  } catch (e) {
+    onDone({ ok: false, reason: String(e), response: null })
+  }
+}
+
+export type ExtensionScrapeTopNotesResult =
+  | { ok: true; keyword: string; items: { url: string; title: string; author?: string; excerpt?: string; like_text?: string }[] }
+  | { ok: false; reason: string; detail?: string }
+
+export function tryExtensionScrapeTopNotes(
+  extId: string,
+  keyword: string,
+  onDone: (r: ExtensionScrapeTopNotesResult) => void,
+  opts?: { limit?: number },
+): void {
+  const kw = keyword.trim()
+  if (!extId) {
+    onDone({ ok: false, reason: 'no_extension_id' })
+    return
+  }
+  if (!kw) {
+    onDone({ ok: false, reason: 'missing_keyword' })
+    return
+  }
+  if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
+    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    return
+  }
+  const msg = {
+    channel: 'XHS_PUBLISH_BRIDGE' as const,
+    version: 1 as const,
+    action: 'SCRAPE_TOP_NOTES' as const,
+    payload: { keyword: kw, limit: opts?.limit ?? 10 },
+  }
+  try {
+    chrome.runtime.sendMessage(extId, msg, (response: unknown) => {
+      const errMsg = chrome.runtime.lastError?.message
+      if (errMsg) {
+        onDone({ ok: false, reason: errMsg })
+        return
+      }
+      const resp = (response && typeof response === 'object' ? (response as Record<string, unknown>) : null) || null
+      if (resp && resp.ok) {
+        onDone({
+          ok: true,
+          keyword: typeof resp.keyword === 'string' ? resp.keyword : kw,
+          items: Array.isArray(resp.items) ? (resp.items as any[]) : [],
+        })
+        return
+      }
+      onDone({
+        ok: false,
+        reason: typeof resp?.error === 'string' ? String(resp.error) : 'scrape_failed',
+        detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
+      })
+    })
+  } catch (e) {
+    onDone({ ok: false, reason: String(e) })
+  }
+}
+
+export function tryExtensionScrapeProfileNotes(
+  extId: string,
+  profileUrl: string,
+  onDone: (r: ExtensionScrapeTopNotesResult) => void,
+  opts?: { limit?: number },
+): void {
+  const u = profileUrl.trim()
+  if (!extId) {
+    onDone({ ok: false, reason: 'no_extension_id' })
+    return
+  }
+  if (!u) {
+    onDone({ ok: false, reason: 'missing_profile_url' })
+    return
+  }
+  if (!u.startsWith('https://www.xiaohongshu.com/user/profile/')) {
+    onDone({ ok: false, reason: 'bad_profile_url（请粘贴形如 https://www.xiaohongshu.com/user/profile/... ）' })
+    return
+  }
+  if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
+    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    return
+  }
+  const msg = {
+    channel: 'XHS_PUBLISH_BRIDGE' as const,
+    version: 1 as const,
+    action: 'SCRAPE_PROFILE_NOTES' as const,
+    payload: { profileUrl: u, limit: opts?.limit ?? 10 },
+  }
+  try {
+    chrome.runtime.sendMessage(extId, msg, (response: unknown) => {
+      const errMsg = chrome.runtime.lastError?.message
+      if (errMsg) {
+        onDone({ ok: false, reason: errMsg })
+        return
+      }
+      const resp = (response && typeof response === 'object' ? (response as Record<string, unknown>) : null) || null
+      if (resp && resp.ok) {
+        onDone({
+          ok: true,
+          keyword: typeof resp.keyword === 'string' ? resp.keyword : u,
+          items: Array.isArray(resp.items) ? (resp.items as any[]) : [],
+        })
+        return
+      }
+      onDone({
+        ok: false,
+        reason: typeof resp?.error === 'string' ? String(resp.error) : 'scrape_failed',
+        detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
+      })
+    })
+  } catch (e) {
+    onDone({ ok: false, reason: String(e) })
+  }
+}
+
+export function tryExtensionScrapeExploreRelated(
+  extId: string,
+  noteUrl: string,
+  onDone: (r: ExtensionScrapeTopNotesResult) => void,
+  opts?: { limit?: number },
+): void {
+  const u = noteUrl.trim()
+  if (!extId) {
+    onDone({ ok: false, reason: 'no_extension_id' })
+    return
+  }
+  if (!u) {
+    onDone({ ok: false, reason: 'missing_note_url' })
+    return
+  }
+  if (!u.startsWith('https://www.xiaohongshu.com/explore/')) {
+    onDone({ ok: false, reason: 'bad_note_url（请粘贴形如 https://www.xiaohongshu.com/explore/... ）' })
+    return
+  }
+  if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
+    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    return
+  }
+  const msg = {
+    channel: 'XHS_PUBLISH_BRIDGE' as const,
+    version: 1 as const,
+    action: 'SCRAPE_NOTE_RELATED' as const,
+    payload: { noteUrl: u, limit: opts?.limit ?? 10 },
+  }
+  try {
+    chrome.runtime.sendMessage(extId, msg, (response: unknown) => {
+      const errMsg = chrome.runtime.lastError?.message
+      if (errMsg) {
+        onDone({ ok: false, reason: errMsg })
+        return
+      }
+      const resp = (response && typeof response === 'object' ? (response as Record<string, unknown>) : null) || null
+      if (resp && resp.ok) {
+        onDone({
+          ok: true,
+          keyword: typeof resp.keyword === 'string' ? resp.keyword : u,
+          items: Array.isArray(resp.items) ? (resp.items as any[]) : [],
+        })
+        return
+      }
+      onDone({
+        ok: false,
+        reason: typeof resp?.error === 'string' ? String(resp.error) : 'scrape_failed',
+        detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
       })
     })
   } catch (e) {
@@ -211,15 +410,27 @@ export function publishClipboardFallback(
   topics?: string[],
 ): void {
   const clipPayload = buildPublishClipboardPayload(title, body, publishImages, topics)
-  const win = window.open(XHS_WEB_PUBLISH_URL, '_blank', 'noopener,noreferrer')
+  // 注意：本函数常在异步回调里触发（例如扩展失败后降级），可能不再处于“用户手势”上下文；
+  // 某些浏览器此时会让 window.open 返回 null，且不同策略下仍可能实际打开了新标签。
+  // 因此不要用 “win==null => 一定没打开” 来给用户报错。
+  let win: Window | null = null
+  try {
+    win = window.open(XHS_WEB_PUBLISH_URL, '_blank', 'noopener,noreferrer')
+  } catch {
+    win = null
+  }
   if (!win) {
-    onToast('未能打开新标签，请允许本站弹出窗口后重试')
-    return
+    try {
+      win = window.open(XHS_WEB_PUBLISH_URL, '_blank')
+    } catch {
+      win = null
+    }
   }
   const afterOpen = (clipboardOk: boolean) => {
-    let msg = '已打开小红书发布页（降级：剪贴板）。'
+    let msg = '已打开或已尝试打开小红书发布页（降级：剪贴板）。'
     if (clipboardOk) msg += ' 标题、正文与配图清单已复制到剪贴板。'
     else msg += ' 剪贴板未授权时请手动复制标题与正文。'
+    if (!win) msg += ` 若未弹出新标签，请点击：${XHS_WEB_PUBLISH_URL}`
     onToast(msg)
   }
   if (navigator.clipboard?.writeText) {

@@ -27,6 +27,24 @@ export type ExternalMessage =
       channel: "XHS_PUBLISH_BRIDGE";
       version: 1;
       action: "PING";
+    }
+  | {
+      channel: "XHS_PUBLISH_BRIDGE";
+      version: 1;
+      action: "SCRAPE_TOP_NOTES";
+      payload: { keyword: string; limit?: number };
+    }
+  | {
+      channel: "XHS_PUBLISH_BRIDGE";
+      version: 1;
+      action: "SCRAPE_PROFILE_NOTES";
+      payload: { profileUrl: string; limit?: number };
+    }
+  | {
+      channel: "XHS_PUBLISH_BRIDGE";
+      version: 1;
+      action: "SCRAPE_NOTE_RELATED";
+      payload: { noteUrl: string; limit?: number };
     };
 
 export type FillResult = {
@@ -36,3 +54,15 @@ export type FillResult = {
   /** 调试信息 */
   detail?: string;
 };
+
+export type ScrapeNoteCard = {
+  url: string;
+  title: string;
+  author?: string;
+  excerpt?: string;
+  like_text?: string;
+};
+
+export type ScrapeTopNotesResult =
+  | { ok: true; keyword: string; items: ScrapeNoteCard[]; tabId?: number }
+  | { ok: false; error: string; detail?: string; tabId?: number };

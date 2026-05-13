@@ -8,6 +8,7 @@ const TITLE_SELECTORS = [
   'input[placeholder*="标题"]',
   'textarea[placeholder*="标题"]',
   '[data-placeholder*="标题"]',
+  'input[aria-label*="标题"]',
   ".title-input input",
   ".note-editor input[type=text]"
 ];
@@ -16,6 +17,7 @@ const BODY_SELECTORS = [
   'textarea[placeholder*="输入正文"]',
   'textarea[placeholder*="正文"]',
   'textarea[placeholder*="添加"]',
+  'textarea[aria-label*="正文"]',
   ".note-editor textarea",
   '[contenteditable="true"]'
 ];
@@ -97,6 +99,69 @@ function clickUploadImageTextTab(): boolean {
       const raw = el.textContent?.replace(/\s+/g, "") ?? "";
       if (raw.includes("上传图文")) {
         el.click();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 首屏「上传图片，或写文字生成图片」：file input 常延迟挂载，需先点红色「上传图片」
+ * 才会出现可赋值的 input 或触发站内上传链路（与「上传图文」Tab 不同）。
+ */
+function normClickText(s: string): string {
+  return s.replace(/\s+/g, "").trim();
+}
+
+function clickUploadImagePrimaryCta(): boolean {
+  const buttons: HTMLElement[] = [];
+  const fallback: HTMLElement[] = [];
+  for (const root of allRootsBfs()) {
+    root.querySelectorAll("button, [role='button']").forEach((el) => {
+      if (el instanceof HTMLElement) buttons.push(el);
+    });
+    root.querySelectorAll("a, span, div").forEach((el) => {
+      if (el instanceof HTMLElement) fallback.push(el);
+    });
+  }
+
+  const tryList = (els: HTMLElement[]): boolean => {
+    for (const el of els) {
+      const raw = normClickText(el.textContent || "");
+      if (!raw || raw.includes("上传图文")) continue;
+      if (raw.includes("文字配图")) continue;
+      if (raw === "上传图片") {
+        el.click();
+        return true;
+      }
+    }
+    for (const el of els) {
+      const raw = normClickText(el.textContent || "");
+      if (!raw || raw.includes("上传图文")) continue;
+      if (raw.includes("文字配图")) continue;
+      if (raw.startsWith("上传图片") && raw.length <= 8) {
+        el.click();
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (tryList(buttons)) return true;
+  return tryList(fallback);
+}
+
+/** 点击与 file input 关联的 label（部分实现用 label 承接点击） */
+function clickLabelForFileInput(): boolean {
+  for (const root of allRootsBfs()) {
+    for (const lab of root.querySelectorAll("label[for]")) {
+      if (!(lab instanceof HTMLElement)) continue;
+      const fid = lab.getAttribute("for");
+      if (!fid) continue;
+      const target = root.querySelector(`#${CSS.escape(fid)}`);
+      if (target instanceof HTMLInputElement && target.type === "file") {
+        lab.click();
         return true;
       }
     }
@@ -361,7 +426,22 @@ async function loadAlbumBlobs(urls: string[]): Promise<Blob[]> {
 
 async function triggerProgrammaticImageUpload(imageUrls: string[]): Promise<boolean> {
   const blobs = await loadAlbumBlobs(imageUrls);
-  const inputs = listImageFileInputs();
+  let inputs = listImageFileInputs();
+  if (!inputs.length) {
+    clickUploadImagePrimaryCta();
+    await sleep(900);
+    inputs = listImageFileInputs();
+  }
+  if (!inputs.length) {
+    void clickLabelForFileInput();
+    await sleep(600);
+    inputs = listImageFileInputs();
+  }
+  if (!inputs.length) {
+    clickUploadImagePrimaryCta();
+    await sleep(1200);
+    inputs = listImageFileInputs();
+  }
   if (!inputs.length) return false;
 
   if (blobs.length > 1) {
@@ -393,11 +473,15 @@ async function ensureImageTextModeThenFill(
 
   if (!hasPublishFormFields()) {
     clickUploadImageTextTab();
-    await sleep(1200);
+    await sleep(1600);
   }
 
   let imageTriggered = false;
   for (let attempt = 0; attempt < 5 && !hasPublishFormFields(); attempt++) {
+    if (attempt === 0 && !listImageFileInputs().length) {
+      clickUploadImagePrimaryCta();
+      await sleep(700);
+    }
     imageTriggered = (await triggerProgrammaticImageUpload(imageUrls)) || imageTriggered;
     await sleep(3200);
     if (!hasPublishFormFields()) {
@@ -433,22 +517,185 @@ async function ensureImageTextModeThenFill(
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.channel !== "XHS_PUBLISH_BRIDGE" || msg?.action !== "FILL_DOM") {
+  if (msg?.channel !== "XHS_PUBLISH_BRIDGE") {
     sendResponse({ ok: false, detail: "bad_inner_message" });
     return false;
   }
-  const payload = msg.payload as {
-    title: string;
-    body: string;
-    firstImageUrl?: string;
-    imageUrls?: string[];
-  };
-  const merged: string[] = [];
-  if (payload.imageUrls?.length) merged.push(...payload.imageUrls);
-  if (payload.firstImageUrl?.trim()) merged.push(payload.firstImageUrl.trim());
-  const imageList = dedupeUrls(merged).slice(0, 9);
-  void ensureImageTextModeThenFill(payload.title || "", payload.body || "", imageList).then((r) =>
-    sendResponse(r)
-  );
-  return true;
+
+  if (msg.action === "FILL_DOM") {
+    const payload = msg.payload as {
+      title: string;
+      body: string;
+      firstImageUrl?: string;
+      imageUrls?: string[];
+    };
+    const merged: string[] = [];
+    if (payload.imageUrls?.length) merged.push(...payload.imageUrls);
+    if (payload.firstImageUrl?.trim()) merged.push(payload.firstImageUrl.trim());
+    const imageList = dedupeUrls(merged).slice(0, 9);
+    void ensureImageTextModeThenFill(payload.title || "", payload.body || "", imageList).then((r) =>
+      sendResponse(r)
+    );
+    return true;
+  }
+
+  if (msg.action === "SCRAPE_SEARCH_DOM") {
+    const limitRaw = Number((msg.payload as { limit?: number } | undefined)?.limit ?? 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 10;
+    void (async () => {
+      try {
+        // 等一等首屏卡片渲染
+        await new Promise((r) => setTimeout(r, 900));
+        const anchors = Array.from(
+          document.querySelectorAll<HTMLAnchorElement>(
+            'a[href^="/explore/"],a[href*="/explore/"],a[href^="/discovery/item/"],a[href*="/discovery/item/"]'
+          )
+        );
+        const items: { url: string; title: string; author?: string; excerpt?: string; like_text?: string }[] =
+          [];
+        const seen = new Set<string>();
+        for (const a of anchors) {
+          const href = (a.getAttribute("href") || "").trim();
+          if (!href) continue;
+          const abs = href.startsWith("http") ? href : `https://www.xiaohongshu.com${href}`;
+          if (seen.has(abs)) continue;
+
+          // 尝试从卡片容器提取标题/作者/摘要/点赞
+          const card = a.closest<HTMLElement>("section, article, div");
+          const text = (card?.innerText || a.innerText || "").replace(/\s+/g, " ").trim();
+          let title = "";
+          let excerpt = "";
+          if (text) {
+            const parts = text.split(" ").filter(Boolean);
+            title = parts.slice(0, 16).join(" ").slice(0, 80);
+            excerpt = parts.slice(16, 44).join(" ").slice(0, 120);
+          }
+
+          // 兜底：部分卡片 title 在 aria-label
+          if (!title) {
+            const aria = (a.getAttribute("aria-label") || "").trim();
+            if (aria) title = aria.replace(/\s+/g, " ").slice(0, 80);
+          }
+
+          if (!title) continue;
+          seen.add(abs);
+
+          // 点赞等信息很不稳定：尽量从卡片文本里找一个数字片段
+          const likeText =
+            (text.match(/(\d+(\.\d+)?)(万|w|W)?/u)?.[0] || "").slice(0, 12) || undefined;
+
+          items.push({
+            url: abs,
+            title,
+            excerpt: excerpt || undefined,
+            like_text: likeText
+          });
+          if (items.length >= limit) break;
+        }
+        sendResponse({ ok: true, items });
+      } catch (e) {
+        sendResponse({ ok: false, error: "scrape_dom_error", detail: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === "SCRAPE_PAGE_NOTES") {
+    const limitRaw = Number((msg.payload as { limit?: number } | undefined)?.limit ?? 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 10;
+    void (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 900));
+        const anchors = Array.from(
+          document.querySelectorAll<HTMLAnchorElement>(
+            'a[href^="/explore/"],a[href*="/explore/"],a[href^="/discovery/item/"],a[href*="/discovery/item/"]'
+          )
+        );
+        const items: { url: string; title: string; author?: string; excerpt?: string; like_text?: string }[] =
+          [];
+        const seen = new Set<string>();
+        for (const a of anchors) {
+          const href = (a.getAttribute("href") || "").trim();
+          if (!href) continue;
+          const abs = href.startsWith("http") ? href : `https://www.xiaohongshu.com${href}`;
+          if (seen.has(abs)) continue;
+          const card = a.closest<HTMLElement>("section, article, div");
+          const text = (card?.innerText || a.innerText || "").replace(/\s+/g, " ").trim();
+          let title = "";
+          let excerpt = "";
+          if (text) {
+            const parts = text.split(" ").filter(Boolean);
+            title = parts.slice(0, 16).join(" ").slice(0, 80);
+            excerpt = parts.slice(16, 44).join(" ").slice(0, 120);
+          }
+          if (!title) {
+            const aria = (a.getAttribute("aria-label") || "").trim();
+            if (aria) title = aria.replace(/\s+/g, " ").slice(0, 80);
+          }
+          if (!title) continue;
+          seen.add(abs);
+          const likeText =
+            (text.match(/(\d+(\.\d+)?)(万|w|W)?/u)?.[0] || "").slice(0, 12) || undefined;
+          items.push({ url: abs, title, excerpt: excerpt || undefined, like_text: likeText });
+          if (items.length >= limit) break;
+        }
+        sendResponse({ ok: true, items });
+      } catch (e) {
+        sendResponse({ ok: false, error: "scrape_dom_error", detail: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === "SCRAPE_EXPLORE_RELATED_DOM") {
+    const limitRaw = Number((msg.payload as { limit?: number } | undefined)?.limit ?? 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 10;
+    void (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 1100));
+        const cur = window.location.href.split("#")[0];
+        const root = document.querySelector("main") || document.body;
+        const anchors = Array.from(
+          root.querySelectorAll<HTMLAnchorElement>('a[href^="/explore/"],a[href*="/explore/"]')
+        );
+        const items: { url: string; title: string; excerpt?: string; like_text?: string }[] = [];
+        const seen = new Set<string>();
+        for (const a of anchors) {
+          const href = (a.getAttribute("href") || "").trim();
+          if (!href) continue;
+          const abs = href.startsWith("http") ? href : `https://www.xiaohongshu.com${href}`;
+          const clean = abs.split("?")[0];
+          if (clean === cur.split("?")[0]) continue;
+          if (seen.has(clean)) continue;
+
+          const card = a.closest<HTMLElement>("section, article, div");
+          const text = (card?.innerText || a.innerText || "").replace(/\s+/g, " ").trim();
+          let title = "";
+          let excerpt = "";
+          if (text) {
+            const parts = text.split(" ").filter(Boolean);
+            title = parts.slice(0, 18).join(" ").slice(0, 80);
+            excerpt = parts.slice(18, 50).join(" ").slice(0, 140);
+          }
+          if (!title) {
+            const aria = (a.getAttribute("aria-label") || "").trim();
+            if (aria) title = aria.replace(/\s+/g, " ").slice(0, 80);
+          }
+          if (!title) continue;
+          seen.add(clean);
+          const likeText =
+            (text.match(/(\d+(\.\d+)?)(万|w|W)?/u)?.[0] || "").slice(0, 12) || undefined;
+          items.push({ url: abs, title, excerpt: excerpt || undefined, like_text: likeText });
+          if (items.length >= limit) break;
+        }
+        sendResponse({ ok: true, items });
+      } catch (e) {
+        sendResponse({ ok: false, error: "scrape_dom_error", detail: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  sendResponse({ ok: false, detail: "unsupported_inner_action" });
+  return false;
 });

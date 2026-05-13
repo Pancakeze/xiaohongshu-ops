@@ -1,6 +1,6 @@
 {
   "name": "xhs-publish-bridge",
-  "version": "0.1.5",
+  "version": "0.1.8",
   "private": true,
   "description": "Chrome MV3 extension: ops console → Xiaohongshu creator page fill-in",
   "scripts": {

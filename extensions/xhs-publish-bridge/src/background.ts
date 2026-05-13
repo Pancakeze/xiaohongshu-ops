@@ -1,4 +1,4 @@
-import type { ExternalMessage, FillResult } from "./types";
+import type { ExternalMessage, FillResult, ScrapeTopNotesResult } from "./types";
 
 /**
  * 图文笔记发布入口：需带 `target=image`，否则首屏常为「上传视频」。
@@ -86,13 +86,58 @@ async function ensureTab(url: string): Promise<{ tabId: number; reusedAndNavigat
   return { tabId: created.id, reusedAndNavigated: false };
 }
 
+async function ensureSearchTab(url: string): Promise<{ tabId: number; reusedAndNavigated: boolean }> {
+  const tabs = await chrome.tabs.query({ url: "https://www.xiaohongshu.com/*" });
+  const existing = tabs.find((t) => t.id != null && (t.url || "").includes("/search_result"));
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { url, active: true });
+    if (existing.windowId != null) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+    }
+    return { tabId: existing.id, reusedAndNavigated: true };
+  }
+  const created = await chrome.tabs.create({ url, active: true });
+  if (created.id == null) throw new Error("tab_create_failed");
+  return { tabId: created.id, reusedAndNavigated: false };
+}
+
+async function ensureProfileTab(url: string): Promise<{ tabId: number; reusedAndNavigated: boolean }> {
+  const tabs = await chrome.tabs.query({ url: "https://www.xiaohongshu.com/*" });
+  const existing = tabs.find((t) => t.id != null && (t.url || "").includes("/user/profile/"));
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { url, active: true });
+    if (existing.windowId != null) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+    }
+    return { tabId: existing.id, reusedAndNavigated: true };
+  }
+  const created = await chrome.tabs.create({ url, active: true });
+  if (created.id == null) throw new Error("tab_create_failed");
+  return { tabId: created.id, reusedAndNavigated: false };
+}
+
+async function ensureExploreTab(url: string): Promise<{ tabId: number; reusedAndNavigated: boolean }> {
+  const tabs = await chrome.tabs.query({ url: "https://www.xiaohongshu.com/*" });
+  const existing = tabs.find((t) => t.id != null && (t.url || "").includes("/explore/"));
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { url, active: true });
+    if (existing.windowId != null) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+    }
+    return { tabId: existing.id, reusedAndNavigated: true };
+  }
+  const created = await chrome.tabs.create({ url, active: true });
+  if (created.id == null) throw new Error("tab_create_failed");
+  return { tabId: created.id, reusedAndNavigated: false };
+}
+
 /**
  * 等标签进入 complete。复用标签并 update(url) 时，旧页往往仍是 complete，不能立刻 tabs.get 当「已加载好」。
  */
 function waitTabComplete(
   tabId: number,
   timeoutMs: number,
-  opts?: { ignoreImmediateComplete?: boolean }
+  opts?: { ignoreImmediateComplete?: boolean; expectedUrlPrefix?: string }
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => {
@@ -108,9 +153,30 @@ function waitTabComplete(
       }
     }
     chrome.tabs.onUpdated.addListener(onUpd);
+    const expected = (opts?.expectedUrlPrefix || "").trim();
+    const pollMs = 500;
+    const poll = async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        const okUrl = !expected || (tab.url || "").startsWith(expected);
+        if (okUrl && tab.status === "complete") {
+          clearTimeout(t);
+          chrome.tabs.onUpdated.removeListener(onUpd);
+          resolve();
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      setTimeout(poll, pollMs);
+    };
+    // 无论是否 ignoreImmediateComplete，都做轮询兜底：SPA/重定向场景下 onUpdated 可能错过或不触发 complete
+    void poll();
+
     if (!opts?.ignoreImmediateComplete) {
       void chrome.tabs.get(tabId).then((tab) => {
-        if (tab.status === "complete") {
+        const okUrl = !expected || (tab.url || "").startsWith(expected);
+        if (okUrl && tab.status === "complete") {
           clearTimeout(t);
           chrome.tabs.onUpdated.removeListener(onUpd);
           resolve();
@@ -163,6 +229,174 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
     return;
   }
+  if (message.action === "SCRAPE_TOP_NOTES") {
+    void (async () => {
+      const keyword = String(message.payload?.keyword || "").trim();
+      const limitRaw = Number((message.payload as { limit?: number } | undefined)?.limit ?? 10);
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 10;
+      if (!keyword) {
+        const r: ScrapeTopNotesResult = { ok: false, error: "missing_keyword" };
+        sendResponse(r);
+        return;
+      }
+      const url = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
+      try {
+        const { tabId, reusedAndNavigated } = await ensureSearchTab(url);
+        await waitTabComplete(tabId, 25000, { ignoreImmediateComplete: reusedAndNavigated, expectedUrlPrefix: "https://www.xiaohongshu.com/" });
+        await new Promise((r) => setTimeout(r, reusedAndNavigated ? 1600 : 1200));
+        const inner = {
+          channel: "XHS_PUBLISH_BRIDGE" as const,
+          action: "SCRAPE_SEARCH_DOM" as const,
+          payload: { limit }
+        };
+        const res = (await chrome.tabs.sendMessage(tabId, inner)) as unknown;
+        const obj = (res && typeof res === "object" ? (res as Record<string, unknown>) : null) || null;
+        const ok = Boolean(obj && obj.ok);
+        if (!ok) {
+          const r: ScrapeTopNotesResult = {
+            ok: false,
+            error: typeof obj?.error === "string" ? String(obj.error) : "scrape_failed",
+            detail: typeof obj?.detail === "string" ? String(obj.detail) : undefined,
+            tabId
+          };
+          sendResponse(r);
+          return;
+        }
+        const items = Array.isArray(obj?.items) ? (obj?.items as unknown[]) : [];
+        const outItems = items
+          .filter((x) => x && typeof x === "object")
+          .map((x) => x as Record<string, unknown>)
+          .map((x) => ({
+            url: typeof x.url === "string" ? x.url : "",
+            title: typeof x.title === "string" ? x.title : "",
+            author: typeof x.author === "string" ? x.author : undefined,
+            excerpt: typeof x.excerpt === "string" ? x.excerpt : undefined,
+            like_text: typeof x.like_text === "string" ? x.like_text : undefined
+          }))
+          .filter((x) => x.url && x.title)
+          .slice(0, limit);
+        const r: ScrapeTopNotesResult = { ok: true, keyword, items: outItems, tabId };
+        sendResponse(r);
+      } catch (e) {
+        const r: ScrapeTopNotesResult = { ok: false, error: "scrape_exception", detail: String(e) };
+        sendResponse(r);
+      }
+    })();
+    return true;
+  }
+  if (message.action === "SCRAPE_PROFILE_NOTES") {
+    void (async () => {
+      const profileUrl = String(message.payload?.profileUrl || "").trim();
+      const limitRaw = Number((message.payload as { limit?: number } | undefined)?.limit ?? 10);
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 10;
+      if (!profileUrl) {
+        const r: ScrapeTopNotesResult = { ok: false, error: "missing_profile_url" };
+        sendResponse(r);
+        return;
+      }
+      if (!profileUrl.startsWith("https://www.xiaohongshu.com/user/profile/")) {
+        const r: ScrapeTopNotesResult = { ok: false, error: "bad_profile_url" };
+        sendResponse(r);
+        return;
+      }
+      try {
+        const { tabId, reusedAndNavigated } = await ensureProfileTab(profileUrl);
+        await waitTabComplete(tabId, 25000, { ignoreImmediateComplete: reusedAndNavigated, expectedUrlPrefix: "https://www.xiaohongshu.com/" });
+        await new Promise((r) => setTimeout(r, reusedAndNavigated ? 1600 : 1200));
+        const inner = {
+          channel: "XHS_PUBLISH_BRIDGE" as const,
+          action: "SCRAPE_PAGE_NOTES" as const,
+          payload: { limit }
+        };
+        const res = (await chrome.tabs.sendMessage(tabId, inner)) as unknown;
+        const obj = (res && typeof res === "object" ? (res as Record<string, unknown>) : null) || null;
+        const ok = Boolean(obj && obj.ok);
+        if (!ok) {
+          const r: ScrapeTopNotesResult = {
+            ok: false,
+            error: typeof obj?.error === "string" ? String(obj.error) : "scrape_failed",
+            detail: typeof obj?.detail === "string" ? String(obj.detail) : undefined,
+            tabId
+          };
+          sendResponse(r);
+          return;
+        }
+        const items = Array.isArray(obj?.items) ? (obj?.items as unknown[]) : [];
+        const outItems = items
+          .filter((x) => x && typeof x === "object")
+          .map((x) => x as Record<string, unknown>)
+          .map((x) => ({
+            url: typeof x.url === "string" ? x.url : "",
+            title: typeof x.title === "string" ? x.title : "",
+            author: typeof x.author === "string" ? x.author : undefined,
+            excerpt: typeof x.excerpt === "string" ? x.excerpt : undefined,
+            like_text: typeof x.like_text === "string" ? x.like_text : undefined
+          }))
+          .filter((x) => x.url && x.title)
+          .slice(0, limit);
+        const r: ScrapeTopNotesResult = { ok: true, keyword: profileUrl, items: outItems, tabId };
+        sendResponse(r);
+      } catch (e) {
+        const r: ScrapeTopNotesResult = { ok: false, error: "scrape_exception", detail: String(e) };
+        sendResponse(r);
+      }
+    })();
+    return true;
+  }
+  if (message.action === "SCRAPE_NOTE_RELATED") {
+    void (async () => {
+      const noteUrl = String(message.payload?.noteUrl || "").trim();
+      const limitRaw = Number((message.payload as { limit?: number } | undefined)?.limit ?? 10);
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 10;
+      if (!noteUrl) {
+        sendResponse({ ok: false, error: "missing_note_url" });
+        return;
+      }
+      if (!noteUrl.startsWith("https://www.xiaohongshu.com/explore/")) {
+        sendResponse({ ok: false, error: "bad_note_url" });
+        return;
+      }
+      try {
+        const { tabId, reusedAndNavigated } = await ensureExploreTab(noteUrl);
+        await waitTabComplete(tabId, 25000, { ignoreImmediateComplete: reusedAndNavigated, expectedUrlPrefix: "https://www.xiaohongshu.com/" });
+        await new Promise((r) => setTimeout(r, reusedAndNavigated ? 1700 : 1300));
+        const inner = {
+          channel: "XHS_PUBLISH_BRIDGE" as const,
+          action: "SCRAPE_EXPLORE_RELATED_DOM" as const,
+          payload: { limit }
+        };
+        const res = (await chrome.tabs.sendMessage(tabId, inner)) as unknown;
+        const obj = (res && typeof res === "object" ? (res as Record<string, unknown>) : null) || null;
+        const ok = Boolean(obj && obj.ok);
+        if (!ok) {
+          sendResponse({
+            ok: false,
+            error: typeof obj?.error === "string" ? String(obj.error) : "scrape_failed",
+            detail: typeof obj?.detail === "string" ? String(obj.detail) : undefined,
+            tabId
+          });
+          return;
+        }
+        const items = Array.isArray(obj?.items) ? (obj?.items as unknown[]) : [];
+        const outItems = items
+          .filter((x) => x && typeof x === "object")
+          .map((x) => x as Record<string, unknown>)
+          .map((x) => ({
+            url: typeof x.url === "string" ? x.url : "",
+            title: typeof x.title === "string" ? x.title : "",
+            author: typeof x.author === "string" ? x.author : undefined,
+            excerpt: typeof x.excerpt === "string" ? x.excerpt : undefined,
+            like_text: typeof x.like_text === "string" ? x.like_text : undefined
+          }))
+          .filter((x) => x.url && x.title)
+          .slice(0, limit);
+        sendResponse({ ok: true, keyword: noteUrl, items: outItems, tabId });
+      } catch (e) {
+        sendResponse({ ok: false, error: "scrape_exception", detail: String(e) });
+      }
+    })();
+    return true;
+  }
   if (message.action !== "FILL_IMG_NOTE") {
     sendResponse({ ok: false, error: "unsupported_action" });
     return;
@@ -173,8 +407,17 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     const url = targetUrl(path);
     try {
       const { tabId, reusedAndNavigated } = await ensureTab(url);
-      await waitTabComplete(tabId, 25000, { ignoreImmediateComplete: reusedAndNavigated });
-      await new Promise((r) => setTimeout(r, reusedAndNavigated ? 1800 : 1200));
+      try {
+        await waitTabComplete(tabId, 25000, {
+          ignoreImmediateComplete: reusedAndNavigated,
+          expectedUrlPrefix: "https://creator.xiaohongshu.com/",
+        });
+      } catch (e) {
+        // 创作页是 SPA/重定向较多，偶尔长时间不进入 complete；超时也继续尝试 fill（fillOnTab 自带重试）
+        const msg = String(e);
+        if (!msg.includes("tab_load_timeout")) throw e;
+      }
+      await new Promise((r) => setTimeout(r, reusedAndNavigated ? 1900 : 1300));
       const r = await fillOnTab(tabId, title, body, firstImageUrl, imageUrls);
       sendResponse({ ok: r.ok, result: r, tabId });
     } catch (e) {

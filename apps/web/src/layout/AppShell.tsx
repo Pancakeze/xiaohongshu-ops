@@ -1,4 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { apiGet, apiPatch, type EntryDetail, type Template } from '../lib/api'
+import { resolveCurrentEntryId } from '../lib/currentEntry'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/workbench': '工作台与发布',
@@ -24,9 +27,123 @@ function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
   )
 }
 
+function TemplatePickerModal({
+  open,
+  onClose,
+  onPicked,
+}: {
+  open: boolean
+  onClose: () => void
+  onPicked: (name: string) => void
+}) {
+  const [list, setList] = useState<Template[]>([])
+  const [entryId, setEntryId] = useState<string | null>(null)
+  const [currentSelected, setCurrentSelected] = useState<string | null>(null)
+  const [hint, setHint] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void (async () => {
+      setHint(null)
+      const eid = await resolveCurrentEntryId()
+      if (cancelled) return
+      setEntryId(eid)
+      try {
+        const tpls = await apiGet<Template[]>('/api/templates?enabled=true')
+        if (cancelled) return
+        setList(tpls)
+        if (!tpls.length) {
+          setHint('暂无启用中的模版，请前往「模版管理」启用或新建。')
+        }
+        if (eid) {
+          const entry = await apiGet<EntryDetail>(`/api/entries/${eid}`)
+          if (cancelled) return
+          setCurrentSelected(entry.selected_template_id ?? null)
+        } else {
+          setCurrentSelected(null)
+          setHint((h) => h ?? '暂无内容条目，请先打开工作台加载条目。')
+        }
+      } catch (e) {
+        if (!cancelled) setHint(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const pick = async (t: Template) => {
+    if (!entryId) {
+      setHint('无法绑定模版：没有可用的内容条目。')
+      return
+    }
+    try {
+      await apiPatch<EntryDetail>(`/api/entries/${entryId}`, { selected_template_id: t.id })
+      setCurrentSelected(t.id)
+      onPicked(t.name)
+      window.dispatchEvent(new CustomEvent('xhs:template-selected', { detail: { templateId: t.id } }))
+      onClose()
+    } catch (e) {
+      setHint(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  if (!open) return null
+
+  return (
+    <div
+      id="modal-templates"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden={false}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          id="modal-templates-close"
+          className="absolute right-4 top-4 text-xl leading-none text-slate-400 hover:text-slate-600"
+          onClick={onClose}
+          aria-label="关闭"
+        >
+          &times;
+        </button>
+        <h2 className="mb-4 text-lg font-semibold text-slate-900">选择模版</h2>
+        {hint ? <p className="mb-3 text-xs text-amber-800">{hint}</p> : null}
+        <div className="space-y-2">
+          {list.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`tpl-pick w-full rounded-xl border px-4 py-3 text-left text-sm transition-colors hover:border-brand hover:bg-brand-soft ${
+                currentSelected === t.id ? 'border-brand bg-brand-soft' : 'border-slate-200'
+              }`}
+              onClick={() => void pick(t)}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+        <p className="mt-4 text-xs text-slate-400">
+          仅展示<strong>启用中</strong>模版（PRD §5.2）。完整管理见「模版库」。
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export function AppShell() {
   const { pathname } = useLocation()
   const pageTitle = ROUTE_TITLES[pathname] || '运营工作台'
+  const [tplModalOpen, setTplModalOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 2600)
+  }, [])
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased">
@@ -72,10 +189,9 @@ export function AppShell() {
             </button>
             <button
               type="button"
+              id="btn-open-template-modal"
               className="rounded-lg bg-brand px-3 py-1.5 text-sm text-white hover:bg-brand-dark"
-              onClick={() => {
-                /* 占位：与原型「选择模版」一致，后续接模版弹窗 */
-              }}
+              onClick={() => setTplModalOpen(true)}
             >
               选择模版
             </button>
@@ -92,6 +208,22 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      <TemplatePickerModal
+        open={tplModalOpen}
+        onClose={() => setTplModalOpen(false)}
+        onPicked={(name) => showToast(`已选择模版：${name}`)}
+      />
+
+      {toast ? (
+        <div
+          id="toast"
+          className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg"
+          role="status"
+        >
+          {toast}
+        </div>
+      ) : null}
     </div>
   )
 }
