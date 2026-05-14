@@ -115,6 +115,17 @@ export function CopyPage() {
 
   useEffect(() => {
     if (!entryId) return
+    const onTemplateSelected = (ev: Event) => {
+      const d = (ev as CustomEvent<{ entryId?: string; templateId?: string }>).detail
+      if (!d?.templateId || d.entryId !== entryId) return
+      setEntry((prev) => (prev ? { ...prev, selected_template_id: d.templateId! } : prev))
+    }
+    window.addEventListener('xhs:template-selected', onTemplateSelected)
+    return () => window.removeEventListener('xhs:template-selected', onTemplateSelected)
+  }, [entryId])
+
+  useEffect(() => {
+    if (!entryId) return
     let timer: ReturnType<typeof setTimeout> | undefined
     const on = (ev: Event) => {
       const e = ev as CustomEvent<{ entryId?: string }>

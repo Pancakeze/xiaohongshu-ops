@@ -108,6 +108,7 @@ def list_composed_drafts(
                 status=d.status,
                 created_at=d.created_at,
                 ordered_image_asset_ids=id_list,
+                cover_asset_id=d.cover_asset_id,
                 optional_cover_preview_url=d.optional_cover_preview_url,
             )
         )
@@ -189,5 +190,6 @@ def create_composed_draft(
         status=draft.status,
         created_at=draft.created_at,
         ordered_image_asset_ids=id_list,
+        cover_asset_id=draft.cover_asset_id,
         optional_cover_preview_url=draft.optional_cover_preview_url,
     )

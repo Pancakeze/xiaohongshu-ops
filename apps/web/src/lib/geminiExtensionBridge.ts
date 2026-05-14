@@ -23,11 +23,11 @@ export function tryGeminiExtensionRun(
 ): void {
   const extId = getBridgeExtensionId(extIdInput)
   if (!extId) {
-    onDone({ ok: false, error: '请填写扩展 ID（与「小红书发布桥接」相同，chrome://extensions）' })
+    onDone({ ok: false, error: '请在工作台填写与发布相同的「发布助手编号」' })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, error: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    onDone({ ok: false, error: '请使用 Chrome 打开本运营台，并安装发布助手扩展' })
     return
   }
   const token = import.meta.env.VITE_API_BEARER_TOKEN || ''
@@ -61,7 +61,7 @@ export function tryGeminiExtensionRun(
       }
       onDone({
         ok: false,
-        error: typeof r?.error === 'string' ? r.error : 'extension_failed',
+        error: typeof r?.error === 'string' ? r.error : '发布助手未返回有效结果',
         detail: typeof r?.detail === 'string' ? r.detail : undefined,
       })
     })

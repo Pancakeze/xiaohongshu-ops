@@ -15,12 +15,12 @@ import {
 
 type Props = {
   entryId: string
-  /** 供「重新生成」接口作为 competitor_paste 的标题/正文来源 */
+  /** 供「重新生成」作为对标正文的参考来源 */
   onBenchmarkDraftChange: (draft: { title: string; body: string } | null) => void
 }
 
 /**
- * 小红书站内：扩展抓 Top10 → analyze-xhs → 落库历史；对标草稿会回调给父组件用于「重新生成」。
+ * 小红书站内：经发布助手抓取 Top10 → 分析 → 落库；对标草稿回传父组件用于「重新生成」。
  */
 export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) {
   const [mode, setMode] = useState<'xhs' | 'profile' | 'note'>('xhs')
@@ -105,7 +105,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     }
     const extId = getBridgeExtensionId('')
     if (!extId) {
-      setErr('未配置桥接扩展 ID：请先到「工作台与发布」里填写扩展 ID 并保存')
+      setErr('请先在「工作台与发布」填写并保存发布助手编号')
       return
     }
     const scraped = await new Promise<{ keyword: string; items: XhsTopNote[] }>((resolve, reject) => {
@@ -130,7 +130,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     }
     const extId = getBridgeExtensionId('')
     if (!extId) {
-      setErr('未配置桥接扩展 ID：请先到「工作台与发布」里填写扩展 ID 并保存')
+      setErr('请先在「工作台与发布」填写并保存发布助手编号')
       return
     }
     const scraped = await new Promise<{ keyword: string; items: XhsTopNote[] }>((resolve, reject) => {
@@ -155,7 +155,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     }
     const extId = getBridgeExtensionId('')
     if (!extId) {
-      setErr('未配置桥接扩展 ID：请先到「工作台与发布」里填写扩展 ID 并保存')
+      setErr('请先在「工作台与发布」填写并保存发布助手编号')
       return
     }
     const scraped = await new Promise<{ keyword: string; items: XhsTopNote[] }>((resolve, reject) => {
@@ -183,23 +183,36 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     })()
   }
 
-  const onHistorySelect = (id: string) => {
-    setHistoryPick(id)
-    if (!id) return
-    if (id === '__latest__') {
-      const r = latestRef.current
-      if (r) setData(r)
-      return
-    }
-    const row = history.find((h) => h.id === id)
-    if (!row) return
-    setData({
+  const payloadFromHistoryRow = useCallback((row: CompetitorAnalysisHistoryRow): CompetitorAnalyzeXhsPayload => {
+    return {
       keyword: row.source_keyword,
       top10: row.top10,
       analysis_markdown: row.analysis_markdown,
       generated_title: row.generated_title,
       generated_body: row.generated_body,
-    })
+    }
+  }, [])
+
+  const onHistorySelect = (id: string) => {
+    setHistoryPick(id)
+    if (!id) return
+    if (id === '__latest__') {
+      const r = latestRef.current
+      if (r) {
+        setData(r)
+        return
+      }
+      const newest = history[0]
+      if (newest) {
+        setData(payloadFromHistoryRow(newest))
+        return
+      }
+      setData(null)
+      return
+    }
+    const row = history.find((h) => h.id === id)
+    if (!row) return
+    setData(payloadFromHistoryRow(row))
   }
 
   return (
@@ -209,7 +222,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
           <div>
             <h2 className="text-sm font-semibold text-slate-900">竞品参考（站内 Top10 → 分析 → 产出文案）</h2>
             <p className="mt-1 text-xs text-slate-500">
-              分析结果会保存到当前条目历史；下方「对标草稿」会作为「重新生成」的参考材料（经 competitor_paste 传入模版生成）。
+              分析结果会保存到当前条目历史；下方「对标草稿」会在你点击「重新生成」时一并作为参考。
             </p>
           </div>
           <button
@@ -286,7 +299,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
                 onChange={(e) => setKeyword(e.target.value)}
                 placeholder="例如：初一数学 提分 / 英语 背单词…"
               />
-              <p className="mt-1 text-xs text-slate-400">需 Chrome + 桥接扩展；会打开/复用搜索页并抓取前 10 条。</p>
+              <p className="mt-1 text-xs text-slate-400">将打开或复用搜索页，并整理前 10 条热门笔记作为参考（需已安装发布助手）。</p>
             </label>
           ) : mode === 'profile' ? (
             <label className="lg:col-span-2">
@@ -360,7 +373,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
                         #{idx + 1} {p.title.trim().slice(0, 70)}
                       </div>
                       {p.like_text ? (
-                        <div className="shrink-0 text-[11px] text-slate-400">热度 {p.like_text}</div>
+                        <div className="shrink-0 text-[11px] text-slate-400">点赞数 {p.like_text}</div>
                       ) : null}
                     </div>
                     <div className="mt-1 break-all text-[11px] text-slate-500">{p.url}</div>

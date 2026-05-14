@@ -83,7 +83,9 @@ function TemplatePickerModal({
       await apiPatch<EntryDetail>(`/api/entries/${entryId}`, { selected_template_id: t.id })
       setCurrentSelected(t.id)
       onPicked(t.name)
-      window.dispatchEvent(new CustomEvent('xhs:template-selected', { detail: { templateId: t.id } }))
+      window.dispatchEvent(
+        new CustomEvent('xhs:template-selected', { detail: { entryId, templateId: t.id } }),
+      )
       onClose()
     } catch (e) {
       setHint(e instanceof Error ? e.message : String(e))

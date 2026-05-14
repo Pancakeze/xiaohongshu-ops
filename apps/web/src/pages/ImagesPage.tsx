@@ -32,10 +32,16 @@ function parseApiErr(e: unknown): string {
   return raw
 }
 
-function buildGenParamSummary(entry: EntryDetail | null, tpl: Template | null): string {
+function buildGenParamSummary(
+  entry: EntryDetail | null,
+  tpl: Template | null,
+  sourceVer: CopyVersion | null,
+  versionTag: string | null,
+): string {
   if (!entry) return ''
-  const title = (entry.title || '').trim()
-  const bodySnippet = (entry.body || '').replace(/\s+/g, ' ').trim().slice(0, 200)
+  const title = (sourceVer?.title ?? entry.title ?? '').trim()
+  const bodyRaw = (sourceVer?.body ?? entry.body ?? '').replace(/\s+/g, ' ').trim()
+  const bodySnippet = bodyRaw.slice(0, 200)
   const meta = tpl?.copy_metadata
   let visual = ''
   if (meta && typeof meta === 'object' && meta !== null) {
@@ -43,6 +49,7 @@ function buildGenParamSummary(entry: EntryDetail | null, tpl: Template | null): 
     if (typeof hint === 'string' && hint.trim()) visual = hint.trim()
   }
   const parts = [
+    versionTag ? `【生图参考文案】${versionTag}` : null,
     `【主文案摘要】${title ? `标题：${title}` : '（无标题）'}`,
     bodySnippet ? `正文节选：${bodySnippet}` : '',
     tpl
@@ -126,9 +133,21 @@ export function ImagesPage() {
     return templates.find((t) => t.id === entry.selected_template_id) ?? null
   }, [entry, templates])
 
+  const sourceVersionRow = useMemo(
+    () => (sourceVersionId ? versions.find((v) => v.id === sourceVersionId) ?? null : null),
+    [versions, sourceVersionId],
+  )
+
+  const sourceVersionTag = useMemo(() => {
+    if (!sourceVersionId) return null
+    const i = sortedAsc.findIndex((v) => v.id === sourceVersionId)
+    const lab = i >= 0 ? `v${i + 1}` : `${sourceVersionId.slice(0, 8)}…`
+    return lab
+  }, [sourceVersionId, sortedAsc])
+
   const paramSummary = useMemo(
-    () => buildGenParamSummary(entry, selectedTemplate),
-    [entry, selectedTemplate],
+    () => buildGenParamSummary(entry, selectedTemplate, sourceVersionRow, sourceVersionTag),
+    [entry, selectedTemplate, sourceVersionRow, sourceVersionTag],
   )
 
   const reloadAll = useCallback(async (id: string) => {
@@ -176,6 +195,17 @@ export function ImagesPage() {
 
   useEffect(() => {
     if (entryId) persistCurrentEntryId(entryId)
+  }, [entryId])
+
+  useEffect(() => {
+    if (!entryId) return
+    const onTemplateSelected = (ev: Event) => {
+      const d = (ev as CustomEvent<{ entryId?: string; templateId?: string }>).detail
+      if (!d?.templateId || d.entryId !== entryId) return
+      setEntry((prev) => (prev ? { ...prev, selected_template_id: d.templateId! } : prev))
+    }
+    window.addEventListener('xhs:template-selected', onTemplateSelected)
+    return () => window.removeEventListener('xhs:template-selected', onTemplateSelected)
   }, [entryId])
 
   useEffect(() => {
@@ -384,7 +414,9 @@ export function ImagesPage() {
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="font-semibold text-slate-900">生图参数</h2>
-          <p className="text-xs text-slate-500">由主文案关键信息 + 模版视觉风格约束拼接（§5.3 / 原型示意）</p>
+          <p className="text-xs text-slate-500">
+            由下方所选<strong>文案版本</strong>的标题与正文节选 + 模版视觉风格约束拼接；切换版本后预览会立即更新。
+          </p>
           <textarea
             readOnly
             rows={8}

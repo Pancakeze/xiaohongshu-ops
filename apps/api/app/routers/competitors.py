@@ -50,7 +50,7 @@ def _build_competitor_system_prompt() -> str:
 def _build_xhs_system_prompt() -> str:
     return (
         "你是小红书增长与内容策略分析师。"
-        "你会基于「小红书站内搜索 Top10 笔记卡片信息」（标题/摘要/互动提示）做竞品套路总结，"
+        "你会基于「小红书站内搜索 Top10 笔记卡片信息」（标题/摘要/点赞数参考）做竞品套路总结，"
         "再生成一篇对标的新笔记（标题+正文）。"
         "注意：竞品内容仅作结构参考，措辞必须明显不同，避免照搬。"
         "输出必须是一个 JSON 对象，不要 markdown 代码围栏，不要其它说明文字。"
@@ -79,7 +79,7 @@ def _build_xhs_user_prompt(payload: CompetitorAnalyzeXhsIn, top10: list[XhsTopNo
                     f"链接：{(it.url or '').strip()[:800]}",
                     f"作者：{(it.author or '').strip()[:120] or '（未知）'}",
                     f"摘要：{(it.excerpt or '').strip()[:400] or '（无）'}",
-                    f"互动提示：{(it.like_text or '').strip()[:50] or '（无）'}",
+                    f"点赞参考：{(it.like_text or '').strip()[:50] or '（无）'}",
                 ]
             )
         )

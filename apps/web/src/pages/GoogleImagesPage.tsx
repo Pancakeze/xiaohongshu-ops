@@ -18,7 +18,7 @@ const LS_LAST = 'xhs:google_image_sessions:last'
 function parseApiErr(e: unknown): string {
   if (!(e instanceof Error)) return String(e)
   const raw = e.message
-  if (raw.includes('draft_image_pool_full')) return '图稿池已满（可在服务端环境变量调整上限）'
+  if (raw.includes('draft_image_pool_full')) return '图稿池已满（请联系管理员调整上限）'
   const m = raw.match(/\{[\s\S]*"detail"\s*:\s*"([^"]+)"[\s\S]*\}\s*$/)
   if (m) return m[1]
   return raw
@@ -89,7 +89,7 @@ function labelForSession(s: LocalSessionRef): string {
 function turnTitle(turn: GoogleImageTurn, idx: number): string {
   const dt = new Date(turn.created_at)
   const t = isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString()
-  return `第 ${idx + 1} 轮${t ? ` · ${t}` : ''}`
+  return `第 ${idx + 1} 次${t ? ` · ${t}` : ''}`
 }
 
 function assetsCount(turn: GoogleImageTurn): number {
@@ -242,7 +242,7 @@ export function GoogleImagesPage() {
           if (sessionId) await reloadSession(sessionId).catch(() => {})
           return
         }
-        showToast('扩展生图已完成')
+        showToast('生成已完成')
         setPrompt('')
         if (sessionId) await reloadSession(sessionId)
       },
@@ -303,9 +303,8 @@ export function GoogleImagesPage() {
       <div className="mb-4 max-w-4xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
         <strong className="text-slate-200">Google 生图（聊天式）</strong>
         <br />
-        推荐：<strong className="text-slate-100">用扩展</strong>
-        在<strong className="text-slate-100">你已正常登录</strong>的 Chrome 里打开 Gemini 页填 prompt、抓图并回传（与「小红书发布桥接」同一扩展，需填写扩展
-        ID）。
+        在已登录的 Gemini 页面中自动填写指令并提交；结果会回到本页历史。请在工作台填写<strong className="text-slate-100">发布助手编号</strong>
+        （与发布小红书为同一助手）。
       </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -374,7 +373,7 @@ export function GoogleImagesPage() {
                 <p className="mt-2 text-[11px] leading-relaxed text-red-700">{session.last_error}</p>
               ) : (
                 <p className="mt-2 text-[11px] text-slate-400">
-                  提示：请先在 Chrome 中登录 Gemini；本页仅通过扩展在已打开的标签页内操作。
+                  请先在浏览器中保持 Gemini 已登录；生成在对应页面中完成。
                 </p>
               )}
               <button
@@ -396,7 +395,7 @@ export function GoogleImagesPage() {
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-slate-900">发起生成</h2>
-                <p className="mt-1 text-xs text-slate-500">每次提交会创建一轮 turn；生成成功后会回写图片列表。</p>
+                <p className="mt-1 text-xs text-slate-500">每次发送会新增一条记录；生成成功后会显示缩略图列表。</p>
               </div>
               <button
                 type="button"
@@ -410,7 +409,7 @@ export function GoogleImagesPage() {
 
             <div className="mt-4 grid gap-3 md:grid-cols-[1fr_280px]">
               <div>
-                <label className="block text-xs text-slate-500">指令（Prompt）</label>
+                <label className="block text-xs text-slate-500">你希望生成的内容</label>
                 <textarea
                   rows={5}
                   className="mt-1 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-relaxed"
@@ -426,7 +425,7 @@ export function GoogleImagesPage() {
                     disabled={!sessionId || busy || !prompt.trim()}
                     onClick={() => void submitViaExtension()}
                   >
-                    {busy ? '执行中…' : '发送（扩展）'}
+                    {busy ? '执行中…' : '发送'}
                   </button>
                   <button
                     type="button"
@@ -437,7 +436,7 @@ export function GoogleImagesPage() {
                       if (last?.prompt) setPrompt(last.prompt)
                     }}
                   >
-                    继续优化（带入上一轮）
+                    继续优化（沿用上一条）
                   </button>
                 </div>
                 {loadErr ? <p className="mt-2 text-xs text-red-600">{loadErr}</p> : null}
@@ -453,13 +452,13 @@ export function GoogleImagesPage() {
                   disabled={!sessionId || busy}
                 />
                 <p className="mt-1 text-[11px] text-slate-400">
-                  会随指令一并交给 Gemini；敏感字段不会写入 turn.params。
+                  会随描述一并交给 Gemini；敏感信息不会作为参数存档。
                 </p>
               </div>
             </div>
 
             <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-medium text-slate-800">扩展与图稿池</p>
+              <p className="text-xs font-medium text-slate-800">图稿池与发布助手</p>
               <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
@@ -471,10 +470,12 @@ export function GoogleImagesPage() {
               </label>
               <p className="mt-1 text-[11px] text-slate-500">
                 当前条目：
-                <span className="font-mono text-slate-700">{entryIdForPool ?? '（未设置，请从图片页或工作台进入以绑定 sessionStorage）'}</span>
+                <span className="font-mono text-slate-700">
+                  {entryIdForPool ?? '（未绑定：请从工作台或「图片生成与管理」进入后再试）'}
+                </span>
               </p>
               <label className="mt-3 block text-xs text-slate-500">
-                扩展 ID（与小红书发布桥接相同，chrome://extensions）
+                发布助手编号（与工作台相同）
                 <input
                   type="text"
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800"
@@ -491,8 +492,8 @@ export function GoogleImagesPage() {
           <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
             <div className="rounded-xl border border-slate-200 bg-white p-5">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-900">历史 turns</h3>
-                <span className="text-xs text-slate-500">{sortedTurns.length} 轮</span>
+                <h3 className="text-sm font-semibold text-slate-900">生成记录</h3>
+                <span className="text-xs text-slate-500">{sortedTurns.length} 条</span>
               </div>
 
               <ul className="mt-3 max-h-[min(70vh,820px)] space-y-3 overflow-y-auto pr-1">
@@ -523,7 +524,7 @@ export function GoogleImagesPage() {
                             })
                           }
                         >
-                          重试本轮
+                          再试一次
                         </button>
                       </div>
 
@@ -558,7 +559,7 @@ export function GoogleImagesPage() {
                             ))}
                         </div>
                       ) : (
-                        <p className="mt-2 text-xs text-slate-400">本轮暂无图片产物。</p>
+                        <p className="mt-2 text-xs text-slate-400">本条暂无图片。</p>
                       )}
                     </li>
                   )
@@ -566,7 +567,7 @@ export function GoogleImagesPage() {
               </ul>
 
               {sortedTurns.length === 0 ? (
-                <p className="mt-3 text-xs text-slate-400">暂无历史。创建会话后在上方输入 prompt 并点击「发送（扩展）」。</p>
+                <p className="mt-3 text-xs text-slate-400">暂无历史。创建会话后在上方输入描述并点击「发送」。</p>
               ) : null}
             </div>
 

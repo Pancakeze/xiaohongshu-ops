@@ -32,6 +32,195 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** 从 aria-label 抽点赞（站内常见：`7478次点赞`、`1.2万次点赞`）。 */
+function extractLikesFromAriaLabels(root: HTMLElement | null): string | undefined {
+  if (!root) return undefined;
+  const seen = new Set<string>();
+  const visit = (el: HTMLElement) => {
+    const al = (el.getAttribute("aria-label") || "").trim();
+    if (!al || seen.has(al)) return;
+    seen.add(al);
+    let m = al.match(/^([\d,]+(?:\.\d+)?万?)\s*次点赞/u);
+    if (m) return m[1].replace(/,/g, "").slice(0, 12);
+    m = al.match(/([\d,]+(?:\.\d+)?万?)\s*次点赞/u);
+    if (m) return m[1].replace(/,/g, "").slice(0, 12);
+    m = al.match(/^([\d,]+(?:\.\d+)?万?)\s*次喜欢/u);
+    if (m) return m[1].replace(/,/g, "").slice(0, 12);
+    m = al.match(/\b([\d,]+(?:\.\d+)?)\s*likes?\b/i);
+    if (m) return m[1].replace(/,/g, "").slice(0, 12);
+    return undefined;
+  };
+  const hit = visit(root);
+  if (hit) return hit;
+  for (const el of root.querySelectorAll<HTMLElement>("[aria-label]")) {
+    const v = visit(el);
+    if (v) return v;
+  }
+  return undefined;
+}
+
+/**
+ * 搜索/Feed 卡片：尽量抽取「点赞」展示文案。旧逻辑用「全文第一个数字」易误匹配标题里的年份、视频时长等。
+ * 真实页面上点赞多在底部栏，且常有 `aria-label="…次点赞"`，优先走 DOM。
+ */
+function extractLikesDisplayFromCard(card: HTMLElement | null, blob: string): string | undefined {
+  const fromAria = extractLikesFromAriaLabels(card);
+  if (fromAria) return fromAria;
+
+  const text = blob.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+
+  const en = text.match(/\b(\d+(?:,\d{3})*)\s*likes?\b/i);
+  if (en) return en[1].replace(/,/g, "").slice(0, 12);
+
+  const z1 = text.match(/([\d.]+(?:万|w|W)?)\s*赞/);
+  if (z1) return z1[1].slice(0, 12);
+  const z2 = text.match(/赞\s*([\d.]+(?:万|w|W)?)/);
+  if (z2) return z2[1].slice(0, 12);
+
+  const afterDate = text.match(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+([\d.]+(?:万|w|W)?)/);
+  if (afterDate) return afterDate[1].slice(0, 12);
+
+  const afterRel = text.match(
+    /(?:\d+天前|\d+小时前|\d+分钟前|昨天|前天|刚刚)\s+([\d.]+(?:万|w|W)?)/u
+  );
+  if (afterRel) return afterRel[1].slice(0, 12);
+
+  const wanAll = [...text.matchAll(/(\d+(?:\.\d+)?万)/g)];
+  if (wanAll.length) return wanAll[wanAll.length - 1][1].slice(0, 12);
+
+  if (card) {
+    const likeSpan = Array.from(card.querySelectorAll<HTMLElement>("span, div")).find((el) => {
+      const raw = (el.textContent || "").trim();
+      if (!/^\d/.test(raw) || raw.length > 14) return false;
+      const p = el.parentElement?.textContent || "";
+      return /赞/.test(p) && /\d/.test(raw);
+    });
+    if (likeSpan) {
+      const m = (likeSpan.textContent || "").trim().match(/^([\d.]+(?:万|w|W)?)/);
+      if (m) return m[1].slice(0, 12);
+    }
+    const footNum = extractLikesFromFooterLastPlainNumber(card);
+    if (footNum) return footNum;
+  }
+
+  return undefined;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 从标题/摘要行尾部去掉日期、点赞展示等（与 extractLikesDisplayFromCard 配套）。 */
+function stripFooterFromLine(line: string, likeText: string | undefined): string {
+  let s = line.trim();
+  for (let i = 0; i < 12; i++) {
+    const before = s;
+    if (likeText) {
+      const lt = likeText.trim();
+      if (lt) s = s.replace(new RegExp(`\\s*${escapeRegExp(lt)}\\s*$`, "u"), "").trimEnd();
+    }
+    s = s.replace(/\s+\d{4}-\d{1,2}-\d{1,2}\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d{1,2}-\d{1,2}-\d{1,2}\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d{1,2}-\d{1,2}\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d+天前\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d+小时前\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d+分钟前\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d+周前\s*$/u, "").trimEnd();
+    s = s.replace(/\s+\d+月前\s*$/u, "").trimEnd();
+    s = s.replace(/\s+(昨天|前天|刚刚)\s*$/u, "").trimEnd();
+    s = s.replace(/\s+赞\s*[\d.]+(?:万|w|W)?\s*$/u, "").trimEnd();
+    if (s === before) break;
+  }
+  return s.trim();
+}
+
+/**
+ * 卡片 innerText 常为「标题\\n作者 日期 点赞」或挤成一行；尽量不把底部元数据并进 title。
+ */
+function extractTitleExcerptFromCardBlob(rawBlob: string, likeText: string | undefined): { title: string; excerpt: string } {
+  const raw = rawBlob.replace(/\r/g, "\n").trim();
+  const lines = raw.split("\n").map((l) => l.replace(/[\t ]+/g, " ").trim()).filter(Boolean);
+  if (lines.length >= 2) {
+    const title = stripFooterFromLine(lines[0], likeText).slice(0, 120);
+    const excerpt = stripFooterFromLine(lines.slice(1).join(" "), likeText).slice(0, 200);
+    return { title: title || lines[0].slice(0, 100), excerpt };
+  }
+  const flat = raw.replace(/\s+/g, " ").trim();
+  const cleaned = stripFooterFromLine(flat, likeText);
+  const splitMeta = cleaned.match(
+    /^(.+?)(\s+(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2})(?:\s|$).*)$/u
+  );
+  if (splitMeta && splitMeta[1].trim().length >= 4) {
+    return {
+      title: splitMeta[1].trim().slice(0, 120),
+      excerpt: stripFooterFromLine(splitMeta[2].trim(), likeText).slice(0, 200),
+    };
+  }
+  const splitRel = cleaned.match(
+    /^(.+?)(\s+(?:\d+天前|\d+小时前|\d+分钟前|\d+周前|\d+月前|昨天|前天|刚刚)(?:\s|$).*)$/u
+  );
+  if (splitRel && splitRel[1].trim().length >= 4) {
+    return {
+      title: splitRel[1].trim().slice(0, 120),
+      excerpt: stripFooterFromLine(splitRel[2].trim(), likeText).slice(0, 200),
+    };
+  }
+  return { title: cleaned.slice(0, 120), excerpt: "" };
+}
+
+/** 底部栏最右侧常为纯数字点赞；叶子节点避免拿到整块 footer 文本。 */
+function extractLikesFromFooterLastPlainNumber(card: HTMLElement): string | undefined {
+  const foot =
+    card.querySelector<HTMLElement>('[class*="footer"], [class*="Footer"]') ||
+    card.querySelector<HTMLElement>('[class*="interact"]');
+  if (!foot) return undefined;
+  const leaves = Array.from(foot.querySelectorAll<HTMLElement>("span, i, b, em, strong")).filter(
+    (el) => el.children.length === 0
+  );
+  const nums = leaves.filter((el) => {
+    const t = (el.textContent || "").replace(/\s+/g, "").trim();
+    return /^\d[\d,]{0,11}$/.test(t);
+  });
+  if (!nums.length) return undefined;
+  const t = (nums[nums.length - 1].textContent || "").replace(/\s+/g, "").replace(/,/g, "").trim();
+  return t.slice(0, 12);
+}
+
+/**
+ * 真实版式：封面下标题块与底部作者/点赞栏分离。优先取 footer 上方的兄弟节点首行。
+ */
+function extractSearchCardTitleFromDom(scope: HTMLElement | null): string | undefined {
+  if (!scope) return undefined;
+  const foot = scope.querySelector<HTMLElement>('[class*="footer"], [class*="Footer"]');
+  if (foot?.parentElement) {
+    const parent = foot.parentElement;
+    const idx = Array.prototype.indexOf.call(parent.children, foot);
+    for (let j = idx - 1; j >= 0; j--) {
+      const el = parent.children[j];
+      if (!(el instanceof HTMLElement)) continue;
+      const cls = String(el.className || "");
+      if (/footer|Footer/i.test(cls)) continue;
+      const raw = (el.innerText || "").trim();
+      const first = raw.split(/\n/).map((x) => x.trim()).find(Boolean);
+      if (first && first.length >= 2 && first.length <= 120 && !/^\d+$/.test(first)) return first;
+    }
+  }
+  const kids = Array.from(scope.children).filter((c): c is HTMLElement => c instanceof HTMLElement);
+  for (let i = kids.length - 2; i >= 0; i--) {
+    const el = kids[i];
+    const cls = String(el.className || "");
+    if (/footer|Footer/i.test(cls)) continue;
+    const first =
+      (el.innerText || "")
+        .split(/\n/)
+        .map((x) => x.trim())
+        .find(Boolean) || "";
+    if (first.length >= 4 && first.length <= 120 && !/^\d+$/.test(first)) return first;
+  }
+  return undefined;
+}
+
 /** 含 open ShadowRoot（创作页常见），便于 querySelector 命中真实输入框 */
 function allRootsBfs(): (Document | ShadowRoot)[] {
   const out: (Document | ShadowRoot)[] = [];
@@ -560,34 +749,33 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const abs = href.startsWith("http") ? href : `https://www.xiaohongshu.com${href}`;
           if (seen.has(abs)) continue;
 
-          // 尝试从卡片容器提取标题/作者/摘要/点赞
+          // 尝试从卡片容器提取标题/摘要/点赞（避免把底部作者/日期/点赞并进 title）
           const card = a.closest<HTMLElement>("section, article, div");
-          const text = (card?.innerText || a.innerText || "").replace(/\s+/g, " ").trim();
-          let title = "";
-          let excerpt = "";
-          if (text) {
-            const parts = text.split(" ").filter(Boolean);
-            title = parts.slice(0, 16).join(" ").slice(0, 80);
-            excerpt = parts.slice(16, 44).join(" ").slice(0, 120);
+          const rawBlob = (card?.innerText || a.innerText || "").trim();
+          const text = rawBlob.replace(/\s+/g, " ").trim();
+          const likeText = extractLikesDisplayFromCard(card, text);
+          let { title, excerpt } = extractTitleExcerptFromCardBlob(rawBlob, likeText);
+          const domTitle = extractSearchCardTitleFromDom(card ?? a);
+          if (domTitle) {
+            const tDom = stripFooterFromLine(domTitle, likeText).slice(0, 120);
+            if (tDom) title = tDom;
           }
-
-          // 兜底：部分卡片 title 在 aria-label
           if (!title) {
             const aria = (a.getAttribute("aria-label") || "").trim();
-            if (aria) title = aria.replace(/\s+/g, " ").slice(0, 80);
+            if (aria) {
+              const tec = extractTitleExcerptFromCardBlob(aria, likeText);
+              title = tec.title;
+              if (!excerpt) excerpt = tec.excerpt;
+            }
           }
 
           if (!title) continue;
           seen.add(abs);
 
-          // 点赞等信息很不稳定：尽量从卡片文本里找一个数字片段
-          const likeText =
-            (text.match(/(\d+(\.\d+)?)(万|w|W)?/u)?.[0] || "").slice(0, 12) || undefined;
-
           items.push({
             url: abs,
             title,
-            excerpt: excerpt || undefined,
+            excerpt: excerpt.trim() || undefined,
             like_text: likeText
           });
           if (items.length >= limit) break;
@@ -620,23 +808,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const abs = href.startsWith("http") ? href : `https://www.xiaohongshu.com${href}`;
           if (seen.has(abs)) continue;
           const card = a.closest<HTMLElement>("section, article, div");
-          const text = (card?.innerText || a.innerText || "").replace(/\s+/g, " ").trim();
-          let title = "";
-          let excerpt = "";
-          if (text) {
-            const parts = text.split(" ").filter(Boolean);
-            title = parts.slice(0, 16).join(" ").slice(0, 80);
-            excerpt = parts.slice(16, 44).join(" ").slice(0, 120);
+          const rawBlob = (card?.innerText || a.innerText || "").trim();
+          const text = rawBlob.replace(/\s+/g, " ").trim();
+          const likeText = extractLikesDisplayFromCard(card, text);
+          let { title, excerpt } = extractTitleExcerptFromCardBlob(rawBlob, likeText);
+          const domTitle = extractSearchCardTitleFromDom(card ?? a);
+          if (domTitle) {
+            const tDom = stripFooterFromLine(domTitle, likeText).slice(0, 120);
+            if (tDom) title = tDom;
           }
           if (!title) {
             const aria = (a.getAttribute("aria-label") || "").trim();
-            if (aria) title = aria.replace(/\s+/g, " ").slice(0, 80);
+            if (aria) {
+              const tec = extractTitleExcerptFromCardBlob(aria, likeText);
+              title = tec.title;
+              if (!excerpt) excerpt = tec.excerpt;
+            }
           }
           if (!title) continue;
           seen.add(abs);
-          const likeText =
-            (text.match(/(\d+(\.\d+)?)(万|w|W)?/u)?.[0] || "").slice(0, 12) || undefined;
-          items.push({ url: abs, title, excerpt: excerpt || undefined, like_text: likeText });
+          items.push({
+            url: abs,
+            title,
+            excerpt: excerpt.trim() || undefined,
+            like_text: likeText
+          });
           if (items.length >= limit) break;
         }
         sendResponse({ ok: true, items });
@@ -669,23 +865,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           if (seen.has(clean)) continue;
 
           const card = a.closest<HTMLElement>("section, article, div");
-          const text = (card?.innerText || a.innerText || "").replace(/\s+/g, " ").trim();
-          let title = "";
-          let excerpt = "";
-          if (text) {
-            const parts = text.split(" ").filter(Boolean);
-            title = parts.slice(0, 18).join(" ").slice(0, 80);
-            excerpt = parts.slice(18, 50).join(" ").slice(0, 140);
+          const rawBlob = (card?.innerText || a.innerText || "").trim();
+          const text = rawBlob.replace(/\s+/g, " ").trim();
+          const likeText = extractLikesDisplayFromCard(card, text);
+          let { title, excerpt } = extractTitleExcerptFromCardBlob(rawBlob, likeText);
+          const domTitle = extractSearchCardTitleFromDom(card ?? a);
+          if (domTitle) {
+            const tDom = stripFooterFromLine(domTitle, likeText).slice(0, 120);
+            if (tDom) title = tDom;
           }
           if (!title) {
             const aria = (a.getAttribute("aria-label") || "").trim();
-            if (aria) title = aria.replace(/\s+/g, " ").slice(0, 80);
+            if (aria) {
+              const tec = extractTitleExcerptFromCardBlob(aria, likeText);
+              title = tec.title;
+              if (!excerpt) excerpt = tec.excerpt;
+            }
           }
           if (!title) continue;
           seen.add(clean);
-          const likeText =
-            (text.match(/(\d+(\.\d+)?)(万|w|W)?/u)?.[0] || "").slice(0, 12) || undefined;
-          items.push({ url: abs, title, excerpt: excerpt || undefined, like_text: likeText });
+          items.push({
+            url: abs,
+            title,
+            excerpt: excerpt.trim() || undefined,
+            like_text: likeText
+          });
           if (items.length >= limit) break;
         }
         sendResponse({ ok: true, items });

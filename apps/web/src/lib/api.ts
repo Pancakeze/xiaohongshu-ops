@@ -148,6 +148,7 @@ export type ComposedDraftRow = {
   status: string
   created_at: string
   ordered_image_asset_ids: string[]
+  cover_asset_id?: string | null
   optional_cover_preview_url: string | null
 }
 

@@ -580,6 +580,7 @@ def reorder_images(
         img = images.get(uid)
         if img is None:
             raise HTTPException(status_code=400, detail=f"Unknown image id: {uid}")
+        img.sort_order = idx
     _touch_entry(entry)
     db.commit()
     db.refresh(entry)

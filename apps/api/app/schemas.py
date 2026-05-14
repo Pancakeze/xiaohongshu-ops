@@ -224,6 +224,7 @@ class ComposedDraftOut(BaseModel):
     status: str
     created_at: datetime
     ordered_image_asset_ids: List[UUID]
+    cover_asset_id: Optional[UUID] = None
     optional_cover_preview_url: Optional[str] = None
 
     @field_validator("ordered_image_asset_ids", mode="before")

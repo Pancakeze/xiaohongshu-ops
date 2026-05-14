@@ -122,11 +122,11 @@ export function tryPingBridgeExtension(
   onDone: (r: { ok: true; version: string } | { ok: false; reason: string }) => void,
 ): void {
   if (!extId) {
-    onDone({ ok: false, reason: 'no_extension_id' })
+    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    onDone({ ok: false, reason: '请使用 Chrome 打开本运营台，并安装发布助手扩展' })
     return
   }
   const msg = { channel: 'XHS_PUBLISH_BRIDGE' as const, version: 1 as const, action: 'PING' as const }
@@ -142,7 +142,7 @@ export function tryPingBridgeExtension(
         onDone({ ok: true, version: resp.version })
         return
       }
-      onDone({ ok: false, reason: '扩展未返回版本（请确认已加载桥接扩展）' })
+      onDone({ ok: false, reason: '发布助手未响应，请确认扩展已安装并已开启' })
     })
   } catch (e) {
     onDone({ ok: false, reason: String(e) })
@@ -174,11 +174,11 @@ export function tryExtensionPublish(
   options?: ExtensionPublishOptions,
 ): void {
   if (!extId) {
-    onDone({ ok: false, reason: 'no_extension_id', response: null })
+    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号', response: null })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, reason: 'no_chrome_runtime', response: null })
+    onDone({ ok: false, reason: '请使用 Chrome 打开本运营台，并安装发布助手扩展', response: null })
     return
   }
   const payload: { title: string; body: string; firstImageUrl?: string; imageUrls?: string[] } = {
@@ -225,7 +225,7 @@ export function tryExtensionPublish(
           (resp && (typeof resp.error === 'string' ? resp.error : undefined)) ||
           (resp && (typeof resp.detail === 'string' ? resp.detail : undefined)) ||
           nestedDetail ||
-          'extension_failed',
+          '发布助手未返回有效结果',
         response,
       })
     })
@@ -246,15 +246,15 @@ export function tryExtensionScrapeTopNotes(
 ): void {
   const kw = keyword.trim()
   if (!extId) {
-    onDone({ ok: false, reason: 'no_extension_id' })
+    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
     return
   }
   if (!kw) {
-    onDone({ ok: false, reason: 'missing_keyword' })
+    onDone({ ok: false, reason: '请输入搜索关键词' })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    onDone({ ok: false, reason: '请使用 Chrome 打开本运营台，并安装发布助手扩展' })
     return
   }
   const msg = {
@@ -281,7 +281,7 @@ export function tryExtensionScrapeTopNotes(
       }
       onDone({
         ok: false,
-        reason: typeof resp?.error === 'string' ? String(resp.error) : 'scrape_failed',
+        reason: typeof resp?.error === 'string' ? String(resp.error) : '抓取失败，请稍后重试',
         detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
       })
     })
@@ -298,19 +298,19 @@ export function tryExtensionScrapeProfileNotes(
 ): void {
   const u = profileUrl.trim()
   if (!extId) {
-    onDone({ ok: false, reason: 'no_extension_id' })
+    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
     return
   }
   if (!u) {
-    onDone({ ok: false, reason: 'missing_profile_url' })
+    onDone({ ok: false, reason: '请粘贴用户主页链接' })
     return
   }
   if (!u.startsWith('https://www.xiaohongshu.com/user/profile/')) {
-    onDone({ ok: false, reason: 'bad_profile_url（请粘贴形如 https://www.xiaohongshu.com/user/profile/... ）' })
+    onDone({ ok: false, reason: '主页链接格式不正确，请使用小红书用户主页的完整链接' })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    onDone({ ok: false, reason: '请使用 Chrome 打开本运营台，并安装发布助手扩展' })
     return
   }
   const msg = {
@@ -337,7 +337,7 @@ export function tryExtensionScrapeProfileNotes(
       }
       onDone({
         ok: false,
-        reason: typeof resp?.error === 'string' ? String(resp.error) : 'scrape_failed',
+        reason: typeof resp?.error === 'string' ? String(resp.error) : '抓取失败，请稍后重试',
         detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
       })
     })
@@ -354,19 +354,19 @@ export function tryExtensionScrapeExploreRelated(
 ): void {
   const u = noteUrl.trim()
   if (!extId) {
-    onDone({ ok: false, reason: 'no_extension_id' })
+    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
     return
   }
   if (!u) {
-    onDone({ ok: false, reason: 'missing_note_url' })
+    onDone({ ok: false, reason: '请粘贴笔记链接' })
     return
   }
   if (!u.startsWith('https://www.xiaohongshu.com/explore/')) {
-    onDone({ ok: false, reason: 'bad_note_url（请粘贴形如 https://www.xiaohongshu.com/explore/... ）' })
+    onDone({ ok: false, reason: '笔记链接格式不正确，请使用小红书笔记页的完整链接' })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
-    onDone({ ok: false, reason: 'no_chrome_runtime（请用 Chrome 打开运营台）' })
+    onDone({ ok: false, reason: '请使用 Chrome 打开本运营台，并安装发布助手扩展' })
     return
   }
   const msg = {
@@ -393,7 +393,7 @@ export function tryExtensionScrapeExploreRelated(
       }
       onDone({
         ok: false,
-        reason: typeof resp?.error === 'string' ? String(resp.error) : 'scrape_failed',
+        reason: typeof resp?.error === 'string' ? String(resp.error) : '抓取失败，请稍后重试',
         detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
       })
     })

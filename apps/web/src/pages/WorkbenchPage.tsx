@@ -6,6 +6,7 @@ import {
   apiGet,
   apiPatch,
   apiPost,
+  apiPut,
   apiUploadEntryImage,
   type ComposedDraftRow,
   type CopyVersion,
@@ -28,7 +29,61 @@ import {
   tryPingBridgeExtension,
 } from '../lib/publishBridge'
 
-type NoteImportOpt = { key: string; label: string; title: string; body: string }
+type NoteImportOpt = {
+  key: string
+  label: string
+  title: string
+  body: string
+  kind: 'pub' | 'cmp'
+  snapshotCopyVersionId?: string
+  orderedImageIds?: string[]
+  coverAssetId?: string | null
+}
+
+async function applyComposedDraftImageState(
+  entryId: string,
+  detail: EntryDetail,
+  orderedRaw: string[],
+  coverAssetId: string | null | undefined,
+): Promise<void> {
+  const images = detail.images || []
+  const existingIds = new Set(images.map((i) => i.id))
+  const ordered = orderedRaw.filter((id) => existingIds.has(id))
+  const allIds = images.map((i) => i.id)
+
+  if (!ordered.length) {
+    await Promise.all(
+      images.map((im) =>
+        apiPatch(`/api/entries/${entryId}/images/${im.id}`, {
+          include_in_publish: false,
+          is_cover: false,
+        }),
+      ),
+    )
+    if (allIds.length) {
+      await apiPut(`/api/entries/${entryId}/images/reorder`, { ids: allIds })
+    }
+    return
+  }
+
+  const cover =
+    (coverAssetId && ordered.includes(coverAssetId) ? coverAssetId : null) ?? ordered[0] ?? null
+  const tail = allIds.filter((id) => !ordered.includes(id))
+  const newOrder = [...ordered, ...tail]
+
+  await Promise.all(
+    images.map((im) =>
+      apiPatch(`/api/entries/${entryId}/images/${im.id}`, {
+        include_in_publish: ordered.includes(im.id),
+        is_cover: false,
+      }),
+    ),
+  )
+  if (cover) {
+    await apiPatch(`/api/entries/${entryId}/images/${cover}`, { is_cover: true })
+  }
+  await apiPut(`/api/entries/${entryId}/images/reorder`, { ids: newOrder })
+}
 
 export function WorkbenchPage() {
   const [entryId, setEntryId] = useState<string | null>(null)
@@ -208,9 +263,10 @@ export function WorkbenchPage() {
             label: `[已发布] ${t.slice(0, 40)}${t.length > 40 ? '…' : ''}`,
             title: p.title || '',
             body: p.body ?? '',
+            kind: 'pub',
           })
         }
-        for (const d of drafts) {
+        for (const d of drafts.filter((x) => x.entry_id === entryId)) {
           const t = (d.snapshot_title || '').trim() || '（无标题）'
           const et = (d.entry_title || '').trim().slice(0, 12)
           opts.push({
@@ -218,6 +274,10 @@ export function WorkbenchPage() {
             label: `[组合草稿 · ${et}] ${t.slice(0, 28)}${t.length > 28 ? '…' : ''}`,
             title: d.snapshot_title || '',
             body: d.snapshot_body ?? '',
+            kind: 'cmp',
+            snapshotCopyVersionId: d.snapshot_copy_version_id,
+            orderedImageIds: (d.ordered_image_asset_ids || []).map((x) => String(x)),
+            coverAssetId: d.cover_asset_id != null ? String(d.cover_asset_id) : null,
           })
         }
         setNoteImportOptions(opts)
@@ -282,16 +342,30 @@ export function WorkbenchPage() {
         body: sel.body,
         topics: topicList,
       })
-      setEntry(d)
-      setTitle(d.title)
-      setBody(d.body)
+      let next = d
+      if (sel.kind === 'cmp') {
+        await applyComposedDraftImageState(
+          entryId,
+          d,
+          sel.orderedImageIds ?? [],
+          sel.coverAssetId ?? null,
+        )
+        next = await apiGet<EntryDetail>(`/api/entries/${entryId}`)
+      }
+      setEntry(next)
+      setTitle(next.title)
+      setBody(next.body)
       window.dispatchEvent(
         new CustomEvent('xhs:entry-updated', { detail: { entryId } }),
       )
       showToast(
-        dirty
-          ? '已载入标题与正文（未保存的编辑已覆盖；图稿池与话题未变）。已与主文案版本同步。'
-          : '已载入标题与正文（图稿池与话题未变）。已与主文案版本同步。',
+        sel.kind === 'cmp'
+          ? dirty
+            ? '已载入组合草稿：标题与正文已覆盖；配图参与发布、顺序与封面已按草稿同步（其余图仍保留在池中）。'
+            : '已载入组合草稿：标题、正文与配图发布设置已同步。'
+          : dirty
+            ? '已载入标题与正文（未保存的编辑已覆盖；图稿池与话题未变）。已与主文案版本同步。'
+            : '已载入标题与正文（图稿池与话题未变）。已与主文案版本同步。',
       )
     } catch (e) {
       showToast(e instanceof Error ? e.message : '载入失败')
@@ -401,17 +475,17 @@ export function WorkbenchPage() {
         )
         if (!imageOk) {
           showToast(
-            `扩展已打开创作页并尝试写入标题/正文${topicHint}；但图片未自动触发上传（${detail || '请在创作页点「上传图片」'}）。`,
+            `发布助手已打开创作页并尝试写入标题/正文${topicHint}；但图片未自动触发上传（${detail || '请在创作页点「上传图片」'}）。`,
           )
         } else if (!wroteTitle && !wroteBody) {
           showToast(
-            `扩展已打开创作页但未找到标题/正文输入框（${detail || '可能是创作页改版，需要更新选择器'}）。`,
+            `发布助手已打开创作页，但未找到标题或正文输入框（${detail || '创作页布局可能已更新，请稍后再试或联系管理员'}）。`,
           )
         } else {
           showToast(
             topicHint
-              ? '扩展已打开创作页并尝试填入标题与正文（含 # 话题；发布仍须在小红书侧自行确认）。'
-              : '扩展已打开创作页并尝试填入标题/正文（无法代你点小红书「发布」，请在创作页核对后自行发布）。',
+              ? '发布助手已打开创作页并尝试填入标题与正文（含 # 话题；发布仍须在小红书侧自行确认）。'
+              : '发布助手已打开创作页并尝试填入标题/正文（无法代你点小红书「发布」，请在创作页核对后自行发布）。',
           )
         }
         return
@@ -424,7 +498,7 @@ export function WorkbenchPage() {
           2,
         ),
       )
-      showToast(`扩展未接通：${hint}。将打开创作页并尝试剪贴板降级。`)
+      showToast(`发布助手未接通：${hint}。将打开创作页并尝试复制到剪贴板。`)
       logPublishAttempt({
         outcome: 'clipboard_fallback',
         extension_error: r.reason,
@@ -441,17 +515,17 @@ export function WorkbenchPage() {
 
   const saveExtId = () => {
     persistBridgeExtensionId(extIdInput)
-    showToast('扩展 ID 已保存到本页')
+    showToast('发布助手编号已保存')
   }
 
   const handlePingExtension = () => {
     const extId = getBridgeExtensionId(extIdInput)
     tryPingBridgeExtension(extId, (r) => {
       if (r.ok) {
-        showToast(`扩展已连通（桥接 v${r.version}）。创作页里的 invalid 扩展地址可忽略。`)
+        showToast(`发布助手已连接（版本 ${r.version}）。`)
       } else {
         const hint = r.reason.length > 100 ? `${r.reason.slice(0, 100)}…` : r.reason
-        showToast(`扩展未连通：${hint}`)
+        showToast(`发布助手未连接：${hint}`)
       }
     })
   }
@@ -564,9 +638,7 @@ export function WorkbenchPage() {
         <p className="font-medium text-red-600">加载失败</p>
         <p className="mt-2 text-sm text-slate-600">{loadErr}</p>
         <p className="mt-4 text-sm text-slate-500">
-          请确认已启动 PostgreSQL、API（端口 8000），且 <code className="rounded bg-slate-100 px-1">apps/web/.env</code> 中{' '}
-          <code className="rounded bg-slate-100 px-1">VITE_API_BEARER_TOKEN</code> 与 API 的{' '}
-          <code className="rounded bg-slate-100 px-1">API_BEARER_TOKEN</code> 一致。
+          请确认服务已启动且网络正常；若页面提示未登录或无权访问，请先完成登录与权限配置。
         </p>
       </div>
     )
@@ -589,12 +661,11 @@ export function WorkbenchPage() {
       <div className="mb-4 max-w-4xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
         <strong className="text-slate-200">工作台与发布</strong>
         <br />
-        左侧<strong>图文编辑</strong>与右侧<strong>手机预览</strong>（笔记/封面）联动主文案与图稿池；底部<strong>发布到小红书</strong>优先调用已安装的{' '}
-        <strong>Chrome 发布桥接扩展</strong>（见 <code className="text-slate-300">extensions/xhs-publish-bridge</code>
-        ），失败时降级为「新标签 + 剪贴板」。路由 <code className="text-slate-300">/workbench</code>。
+        左侧编辑正文与图稿，右侧为手机预览；底部「发布到小红书」会优先通过已安装的<strong className="text-slate-100">发布助手</strong>
+        尝试把内容写入创作页，失败时改为打开创作页并把标题、正文与配图清单放到剪贴板。
       </div>
       <p className="mb-4 text-xs text-slate-500">
-        实施优先级见 <code className="text-slate-600">docs/plan-workbench-publish-first.md</code>；其他模块为占位演示。
+        内容会随编辑自动保存。
         {saving ? <span className="ml-2 text-brand">· 保存中…</span> : null}
       </p>
 
@@ -868,7 +939,7 @@ export function WorkbenchPage() {
               </button>
             </div>
             <p className="mt-2 text-[0.7rem] leading-relaxed text-slate-400">
-              若已填写下方<strong>扩展 ID</strong>且已加载桥接扩展：由扩展打开创作页并尝试<strong>直接写入</strong>标题与正文。否则：新标签打开创作页，并将标题、正文与配图清单写入<strong>剪贴板</strong>。
+              若已填写下方<strong>发布助手编号</strong>并已安装助手：将尝试在创作页直接填入标题与正文；否则会打开创作页并把标题、正文与配图清单写入<strong>剪贴板</strong>。
             </p>
             {showPublishDebug ? (
               <details className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[0.7rem] text-slate-600">
@@ -920,14 +991,14 @@ export function WorkbenchPage() {
             ) : null}
             <div className="mt-3 border-t border-slate-200/90 pt-3">
               <label htmlFor="xhs-bridge-ext-id" className="mb-1 block text-xs text-slate-500">
-                Chrome 扩展 ID（<code className="text-[0.65rem]">xhs-publish-bridge</code>，可选）
+                发布助手编号（可选，用于自动填入创作页）
               </label>
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   id="xhs-bridge-ext-id"
                   type="text"
                   autoComplete="off"
-                  placeholder="chrome://extensions 中复制"
+                  placeholder="在浏览器扩展管理页复制助手编号"
                   className="min-w-[12rem] flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs"
                   value={extIdInput}
                   onChange={(e) => setExtIdInput(e.target.value)}
@@ -944,12 +1015,11 @@ export function WorkbenchPage() {
                   onClick={handlePingExtension}
                   className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs hover:bg-slate-100"
                 >
-                  检测扩展连接
+                  检测发布助手
                 </button>
               </div>
               <p className="mt-1.5 text-[0.65rem] leading-relaxed text-slate-400">
-                创作页控制台里的 <code className="text-slate-500">chrome-extension://invalid/</code>{' '}
-                多为小红书站点脚本发起，<strong>不能</strong>用来判断桥接是否连通；请以本页「检测扩展连接」或点「发布到小红书」后的提示为准。
+                创作页控制台里偶发的助手相关报错，多数来自小红书站点自身，不必紧张；是否连通请以本页「检测发布助手」或点击发布后的提示为准。
               </p>
             </div>
           </div>
