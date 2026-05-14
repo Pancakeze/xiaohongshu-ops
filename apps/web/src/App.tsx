@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './layout/AppShell'
 import { CopyPage } from './pages/CopyPage'
 import { DashPage } from './pages/DashPage'
+import { GoogleImagesPage } from './pages/GoogleImagesPage'
 import { ImagesPage } from './pages/ImagesPage'
 import { NotesPage } from './pages/NotesPage'
 import { TemplatesPage } from './pages/TemplatesPage'
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/copy" element={<CopyPage />} />
           <Route path="/competitors" element={<Navigate to="/copy" replace />} />
           <Route path="/images" element={<ImagesPage />} />
+          <Route path="/google-images" element={<GoogleImagesPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/notes" element={<NotesPage />} />
           <Route path="*" element={<Navigate to="/workbench" replace />} />

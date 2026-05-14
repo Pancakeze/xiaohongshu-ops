@@ -8,6 +8,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/dash': '总览',
   '/copy': '文案生成与管理',
   '/images': '图片生成与管理',
+  '/google-images': 'Google 生图（聊天式）',
   '/templates': '模版管理',
   '/notes': '笔记管理',
 }
@@ -160,6 +161,7 @@ export function AppShell() {
           <NavItem to="/dash">总览</NavItem>
           <NavItem to="/copy">文案生成与管理</NavItem>
           <NavItem to="/images">图片生成与管理</NavItem>
+          <NavItem to="/google-images">Google 生图（聊天式）</NavItem>
           <NavItem to="/templates">模版管理</NavItem>
           <NavItem to="/notes">笔记管理</NavItem>
           <NavItem to="/workbench">工作台与发布</NavItem>

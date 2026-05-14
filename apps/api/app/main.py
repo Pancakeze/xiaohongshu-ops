@@ -11,6 +11,7 @@ from app.database import SessionLocal, engine
 from app.migrations_runtime import (
     backfill_primary_copy_versions,
     ensure_entry_topics_column,
+    ensure_google_image_schema,
     ensure_publish_attempts_schema,
     ensure_templates_schema,
     ensure_v12_domain_schema,
@@ -19,6 +20,7 @@ from app.migrations_runtime import (
 from app.models import Base
 from app.routers.competitors import router as competitors_router
 from app.routers.entries import router as entries_router
+from app.routers.images_google import router as images_google_router
 from app.routers.notes import router as notes_router
 from app.routers.overview import router as overview_router
 from app.routers.templates import router as templates_router
@@ -34,6 +36,7 @@ async def lifespan(_app: FastAPI):
     ensure_templates_schema()
     ensure_xhs_published_notes_schema()
     ensure_publish_attempts_schema()
+    ensure_google_image_schema()
     db = SessionLocal()
     try:
         ensure_seed_data(db)
@@ -59,13 +62,20 @@ app.include_router(notes_router, prefix="/api")
 app.include_router(overview_router, prefix="/api")
 app.include_router(templates_router, prefix="/api")
 app.include_router(competitors_router, prefix="/api")
+app.include_router(images_google_router, prefix="/api")
 
 # StaticFiles 会在 import 时校验目录存在；避免仅做 import 自检时失败
 settings.upload_path.mkdir(parents=True, exist_ok=True)
+settings.google_generated_path.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/api/uploads",
     StaticFiles(directory=str(settings.upload_path)),
     name="uploads",
+)
+app.mount(
+    "/api/generated/google",
+    StaticFiles(directory=str(settings.google_generated_path)),
+    name="generated_google",
 )
 
 

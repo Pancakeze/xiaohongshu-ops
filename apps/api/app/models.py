@@ -26,6 +26,11 @@ class User(Base):
         back_populates="owner",
         cascade="all, delete-orphan",
     )
+    google_image_sessions: Mapped[list["GoogleImageSession"]] = relationship(
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        order_by="GoogleImageSession.created_at.desc()",
+    )
 
 
 class Entry(Base):
@@ -285,3 +290,76 @@ class PublishAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     entry: Mapped["Entry"] = relationship(back_populates="publish_attempts")
+
+
+class GoogleImageSession(Base):
+    """Google Gemini 网页生图会话（绑定 owner + 复用浏览器上下文的抽象）。"""
+
+    __tablename__ = "google_image_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    owner: Mapped["User"] = relationship(back_populates="google_image_sessions")
+    turns: Mapped[list["GoogleImageTurn"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="GoogleImageTurn.created_at.asc()",
+    )
+
+
+class GoogleImageTurn(Base):
+    """会话内一轮输入/输出（prompt + 参数 + 结果摘要/错误）。"""
+
+    __tablename__ = "google_image_turns"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("google_image_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    params: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=sql_text("'{}'::jsonb"),
+    )
+    result_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped["GoogleImageSession"] = relationship(back_populates="turns")
+    assets: Mapped[list["GoogleImageAsset"]] = relationship(
+        back_populates="turn",
+        cascade="all, delete-orphan",
+        order_by="GoogleImageAsset.created_at.asc()",
+    )
+
+
+class GoogleImageAsset(Base):
+    """单张生成图片资源（本地文件 + 可选 public_url）。"""
+
+    __tablename__ = "google_image_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    turn_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("google_image_turns.id", ondelete="CASCADE"),
+        index=True,
+    )
+    local_path: Mapped[str] = mapped_column(Text, nullable=False)
+    public_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    turn: Mapped["GoogleImageTurn"] = relationship(back_populates="assets")

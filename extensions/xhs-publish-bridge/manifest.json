@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "小红书发布桥接（演示）",
-  "version": "0.1.8",
-  "description": "接收运营台文案并在 creator.xiaohongshu.com 图文页尝试填入（选择器需随官方改版维护）",
+  "version": "0.1.9",
+  "description": "接收运营台文案并在 creator.xiaohongshu.com 图文页尝试填入；并支持在 gemini.google.com 由扩展代填生图回传（选择器需随官方改版维护）",
   "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": [
     "https://creator.xiaohongshu.com/*",
@@ -25,6 +25,12 @@
     {
       "matches": ["https://creator.xiaohongshu.com/*", "https://www.xiaohongshu.com/*"],
       "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["contentGemini.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

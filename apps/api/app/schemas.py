@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+import base64
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.config import settings
 
@@ -388,3 +390,109 @@ class CompetitorAnalysisHistoryOut(BaseModel):
     generated_title: str = ""
     generated_body: str = ""
     created_at: datetime
+
+
+class GoogleImageAssetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    turn_id: UUID
+    local_path: str
+    public_url: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    created_at: datetime
+
+
+class GoogleImageTurnOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_id: UUID
+    prompt: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    result_summary: str = ""
+    last_error: Optional[str] = None
+    created_at: datetime
+    assets: List[GoogleImageAssetOut] = Field(default_factory=list)
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def _params_coerce(cls, v: object) -> dict[str, Any]:
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            return {str(k): v[k] for k in v}
+        return {}
+
+
+class GoogleImageSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    owner_id: UUID
+    status: str
+    last_error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    turns: List[GoogleImageTurnOut] = Field(default_factory=list)
+
+
+class GoogleImageSessionCreateOut(BaseModel):
+    """创建 session 的轻量返回（便于前端先建会话再发第一轮）。"""
+
+    id: UUID
+
+
+class GoogleImageExtensionImageIn(BaseModel):
+    """扩展在 gemini.google.com 页面抓取后回传的图片（base64）。"""
+
+    mime: str = Field(default="image/png", max_length=120)
+    content_base64: str = Field(..., min_length=1, max_length=12_000_000)
+
+    @field_validator("content_base64", mode="before")
+    @classmethod
+    def _strip_data_url(cls, v: object) -> str:
+        if not isinstance(v, str):
+            raise ValueError("expected string")
+        s = v.strip()
+        if s.startswith("data:") and ";base64," in s:
+            s = s.split(";base64,", 1)[1].strip()
+        return s
+
+
+class GoogleImageTurnExtensionIn(BaseModel):
+    """由 Chrome 扩展在已登录的 Gemini 页完成生图后，将图片提交到本接口落盘（不经 Playwright）。"""
+
+    prompt: str = Field(..., min_length=1, max_length=20_000)
+    params: dict[str, Any] = Field(default_factory=dict)
+    images: List[GoogleImageExtensionImageIn] = Field(..., min_length=1, max_length=8)
+    entry_id: Optional[UUID] = Field(
+        default=None,
+        description="可选：若提供且 write_to_draft_pool=true，则把本轮图写入该 entry 的图稿池。",
+    )
+    write_to_draft_pool: bool = Field(default=False)
+    source_copy_version_id: Optional[UUID] = Field(default=None)
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def _params_coerce_ext(cls, v: object) -> dict[str, Any]:
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            return {str(k): v[k] for k in v}
+        raise ValueError("expected object")
+
+    @model_validator(mode="after")
+    def _validate_image_payloads(self) -> "GoogleImageTurnExtensionIn":
+        max_bytes = 8 * 1024 * 1024
+        for img in self.images:
+            try:
+                raw = base64.b64decode(img.content_base64, validate=False)
+            except Exception as e:
+                raise ValueError(f"invalid_base64:{e!s}") from e
+            if len(raw) > max_bytes:
+                raise ValueError("image_too_large")
+            if len(raw) < 16:
+                raise ValueError("image_too_small")
+        return self

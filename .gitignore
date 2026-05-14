@@ -27,6 +27,10 @@ extensions/xhs-publish-bridge/node_modules/
 apps/api/data/uploads/*
 !apps/api/data/uploads/.gitkeep
 
+# Google / Playwright 本地用户数据与生成缓存（勿入库）
+apps/api/data/google_profile/
+apps/api/data/generated/
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db

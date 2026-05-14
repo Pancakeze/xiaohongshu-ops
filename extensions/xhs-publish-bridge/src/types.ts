@@ -66,3 +66,35 @@ export type ScrapeNoteCard = {
 export type ScrapeTopNotesResult =
   | { ok: true; keyword: string; items: ScrapeNoteCard[]; tabId?: number }
   | { ok: false; error: string; detail?: string; tabId?: number };
+
+/** 运营台 → 扩展：在已登录的 Gemini 页生图并回传 base64（与 `apps/web` / API `via-extension` 一致） */
+export type GeminiRunTurnExternalPayload = {
+  prompt: string;
+  sessionId: string;
+  apiBaseUrl: string;
+  bearerToken: string;
+  writeToDraftPool?: boolean;
+  entryId?: string | null;
+  sourceCopyVersionId?: string | null;
+  /** 透存到 API turn.params（不含密钥） */
+  params?: Record<string, unknown>;
+};
+
+export type GeminiExternalMessage =
+  | {
+      channel: "GEMINI_IMAGE_BRIDGE";
+      version: 1;
+      action: "PING";
+    }
+  | {
+      channel: "GEMINI_IMAGE_BRIDGE";
+      version: 1;
+      action: "GEMINI_RUN_TURN";
+      payload: GeminiRunTurnExternalPayload;
+    };
+
+export type GeminiDomImage = { mime: string; content_base64: string };
+
+export type GeminiDomResult =
+  | { ok: true; images: GeminiDomImage[]; detail?: string }
+  | { ok: false; error: string; detail?: string };

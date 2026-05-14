@@ -1,4 +1,10 @@
-import type { ExternalMessage, FillResult, ScrapeTopNotesResult } from "./types";
+import type {
+  ExternalMessage,
+  FillResult,
+  GeminiDomResult,
+  GeminiExternalMessage,
+  ScrapeTopNotesResult,
+} from "./types";
 
 /**
  * 图文笔记发布入口：需带 `target=image`，否则首屏常为「上传视频」。
@@ -222,8 +228,7 @@ async function fillOnTab(
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   if (!isBridgeMessage(message)) {
-    sendResponse({ ok: false, error: "unknown_message" });
-    return;
+    return false;
   }
   if (message.action === "PING") {
     sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
@@ -425,5 +430,140 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     }
   })();
 
+  return true;
+});
+
+function isGeminiExternalMessage(msg: unknown): msg is GeminiExternalMessage {
+  if (!msg || typeof msg !== "object") return false;
+  const m = msg as Record<string, unknown>;
+  return m.channel === "GEMINI_IMAGE_BRIDGE" && m.version === 1 && typeof m.action === "string";
+}
+
+function normalizeApiBase(u: string): string {
+  return u.replace(/\/$/, "");
+}
+
+async function ensureGeminiTab(url: string): Promise<{ tabId: number; reusedAndNavigated: boolean }> {
+  const tabs = await chrome.tabs.query({ url: "https://gemini.google.com/*" });
+  const existing = tabs.find((t) => t.id != null && (t.url || "").includes("gemini.google.com"));
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { url, active: true });
+    if (existing.windowId != null) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+    }
+    return { tabId: existing.id, reusedAndNavigated: true };
+  }
+  const created = await chrome.tabs.create({ url, active: true });
+  if (created.id == null) throw new Error("tab_create_failed");
+  return { tabId: created.id, reusedAndNavigated: false };
+}
+
+async function runGeminiDomOnTab(
+  tabId: number,
+  prompt: string,
+  params: Record<string, unknown>
+): Promise<GeminiDomResult> {
+  const msg = {
+    channel: "GEMINI_IMAGE_BRIDGE" as const,
+    action: "RUN_TURN_DOM" as const,
+    payload: { prompt, params },
+  };
+  const maxAttempts = 14;
+  const delayMs = 500;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, delayMs));
+    else await new Promise((r) => setTimeout(r, 600));
+    try {
+      const res = (await chrome.tabs.sendMessage(tabId, msg)) as GeminiDomResult | undefined;
+      if (res && typeof res === "object" && "ok" in res) return res;
+      return { ok: false, error: "no_dom_response" };
+    } catch (e) {
+      const s = String(e);
+      const retryable =
+        s.includes("Could not establish connection") ||
+        s.includes("Receiving end does not exist") ||
+        s.includes("The message port closed");
+      if (!retryable || attempt === maxAttempts - 1) {
+        return { ok: false, error: "send_message_failed", detail: s };
+      }
+    }
+  }
+  return { ok: false, error: "retries_exhausted" };
+}
+
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (!isGeminiExternalMessage(message)) {
+    return false;
+  }
+  if (message.action === "PING") {
+    sendResponse({ ok: true, version: chrome.runtime.getManifest().version, channel: "GEMINI_IMAGE_BRIDGE" });
+    return false;
+  }
+  if (message.action !== "GEMINI_RUN_TURN") {
+    return false;
+  }
+
+  void (async () => {
+    const p = message.payload;
+    const prompt = String(p.prompt || "").trim();
+    const sessionId = String(p.sessionId || "").trim();
+    const apiBaseUrl = normalizeApiBase(String(p.apiBaseUrl || "").trim());
+    const bearerToken = String(p.bearerToken || "").trim();
+    if (!prompt || !sessionId || !apiBaseUrl || !bearerToken) {
+      sendResponse({ ok: false, error: "missing_required_fields" });
+      return;
+    }
+    const geminiUrl = "https://gemini.google.com/";
+    try {
+      const { tabId, reusedAndNavigated } = await ensureGeminiTab(geminiUrl);
+      await waitTabComplete(tabId, 35000, {
+        ignoreImmediateComplete: reusedAndNavigated,
+        expectedUrlPrefix: "https://gemini.google.com/",
+      });
+      await new Promise((r) => setTimeout(r, reusedAndNavigated ? 1400 : 900));
+      const params =
+        p.params && typeof p.params === "object" && !Array.isArray(p.params)
+          ? (p.params as Record<string, unknown>)
+          : {};
+      const dom = await runGeminiDomOnTab(tabId, prompt, params);
+      if (!dom.ok) {
+        sendResponse({ ok: false, error: dom.error, detail: dom.detail });
+        return;
+      }
+      const res = await fetch(`${apiBaseUrl}/api/google-image/sessions/${sessionId}/turns/via-extension`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify({
+          prompt,
+          params,
+          images: dom.images,
+          write_to_draft_pool: Boolean(p.writeToDraftPool),
+          entry_id: p.entryId && String(p.entryId).trim() ? String(p.entryId).trim() : null,
+          source_copy_version_id:
+            p.sourceCopyVersionId && String(p.sourceCopyVersionId).trim()
+              ? String(p.sourceCopyVersionId).trim()
+              : null,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        sendResponse({ ok: false, error: `api_http_${res.status}`, detail: text.slice(0, 1200) });
+        return;
+      }
+      let turn: unknown;
+      try {
+        turn = JSON.parse(text) as unknown;
+      } catch {
+        sendResponse({ ok: false, error: "api_bad_json", detail: text.slice(0, 200) });
+        return;
+      }
+      sendResponse({ ok: true, turn });
+    } catch (e) {
+      sendResponse({ ok: false, error: "exception", detail: String(e) });
+    }
+  })();
   return true;
 });

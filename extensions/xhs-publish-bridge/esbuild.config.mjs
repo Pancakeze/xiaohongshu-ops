@@ -58,12 +58,21 @@ const ctxCt = await esbuild.context({
   format: "iife"
 });
 
+const ctxGem = await esbuild.context({
+  ...base,
+  entryPoints: [join(__dirname, "src/contentGemini.ts")],
+  outfile: join(dist, "contentGemini.js"),
+  format: "iife"
+});
+
 if (watch) {
-  await Promise.all([ctxBg.watch(), ctxCt.watch()]);
+  await Promise.all([ctxBg.watch(), ctxCt.watch(), ctxGem.watch()]);
   console.log("watching…");
 } else {
   await ctxBg.rebuild();
   await ctxCt.rebuild();
+  await ctxGem.rebuild();
   await ctxBg.dispose();
   await ctxCt.dispose();
+  await ctxGem.dispose();
 }

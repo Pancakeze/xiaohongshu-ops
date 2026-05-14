@@ -251,6 +251,73 @@ def ensure_publish_attempts_schema() -> None:
             conn.execute(text("CREATE INDEX ix_publish_attempts_created_at ON publish_attempts (created_at DESC)"))
 
 
+def ensure_google_image_schema() -> None:
+    """Google Gemini 网页生图：sessions / turns / assets（dev 环境无 Alembic 时确保建表）。"""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        insp_conn = inspect(conn)
+        tables = set(insp_conn.get_table_names())
+
+        if "google_image_sessions" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE google_image_sessions (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        status VARCHAR(32) NOT NULL DEFAULT 'active',
+                        last_error TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_google_image_sessions_owner_id ON google_image_sessions (owner_id)"))
+            conn.execute(text("CREATE INDEX ix_google_image_sessions_created_at ON google_image_sessions (created_at DESC)"))
+
+        insp_conn = inspect(conn)
+        tables = set(insp_conn.get_table_names())
+
+        if "google_image_turns" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE google_image_turns (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        session_id UUID NOT NULL REFERENCES google_image_sessions(id) ON DELETE CASCADE,
+                        prompt TEXT NOT NULL DEFAULT '',
+                        params JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        result_summary TEXT NOT NULL DEFAULT '',
+                        last_error TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_google_image_turns_session_id ON google_image_turns (session_id)"))
+            conn.execute(text("CREATE INDEX ix_google_image_turns_created_at ON google_image_turns (created_at ASC)"))
+
+        if "google_image_assets" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE google_image_assets (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        turn_id UUID NOT NULL REFERENCES google_image_turns(id) ON DELETE CASCADE,
+                        local_path TEXT NOT NULL,
+                        public_url TEXT,
+                        width INTEGER,
+                        height INTEGER,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_google_image_assets_turn_id ON google_image_assets (turn_id)"))
+
+
 def backfill_primary_copy_versions(db: Session) -> None:
     """每条 Entry 至少一条主文案 CopyVersion（is_primary=true）；幂等。"""
     from sqlalchemy import select

@@ -231,3 +231,44 @@ export type CompetitorAnalysisHistoryRow = {
   generated_body: string
   created_at: string
 }
+
+export type GoogleImageAsset = {
+  id: string
+  turn_id: string
+  local_path: string
+  public_url?: string | null
+  width?: number | null
+  height?: number | null
+  created_at: string
+}
+
+export type GoogleImageTurn = {
+  id: string
+  session_id: string
+  prompt: string
+  params: Record<string, unknown>
+  result_summary: string
+  last_error?: string | null
+  created_at: string
+  assets: GoogleImageAsset[]
+}
+
+export type GoogleImageSession = {
+  id: string
+  owner_id: string
+  status: string
+  last_error?: string | null
+  created_at: string
+  updated_at: string
+  turns: GoogleImageTurn[]
+}
+
+export type GoogleImageSessionCreateOut = { id: string }
+
+export async function apiCreateGoogleImageSession(): Promise<GoogleImageSessionCreateOut> {
+  return apiPost<GoogleImageSessionCreateOut>('/api/google-image/sessions', {})
+}
+
+export async function apiGetGoogleImageSession(sessionId: string): Promise<GoogleImageSession> {
+  return apiGet<GoogleImageSession>(`/api/google-image/sessions/${sessionId}`)
+}
