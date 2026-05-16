@@ -10,6 +10,8 @@ from app.config import settings
 from app.database import SessionLocal, engine
 from app.migrations_runtime import (
     backfill_primary_copy_versions,
+    ensure_draft_folders_schema,
+    ensure_draft_image_pools_schema,
     ensure_entry_topics_column,
     ensure_google_image_schema,
     ensure_publish_attempts_schema,
@@ -37,6 +39,8 @@ async def lifespan(_app: FastAPI):
     ensure_xhs_published_notes_schema()
     ensure_publish_attempts_schema()
     ensure_google_image_schema()
+    ensure_draft_folders_schema()
+    ensure_draft_image_pools_schema()
     db = SessionLocal()
     try:
         ensure_seed_data(db)

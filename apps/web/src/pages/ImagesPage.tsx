@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { formatYmdHm } from '../lib/formatDate'
 import {
   apiDelete,
   apiGet,
@@ -9,6 +10,7 @@ import {
   apiUploadEntryImage,
   type CopyVersion,
   type DraftImage,
+  type DraftImagePool,
   type EntryDetail,
   type EntrySummary,
   type Template,
@@ -24,7 +26,12 @@ function emitEntryUpdated(entryId: string) {
 function parseApiErr(e: unknown): string {
   if (!(e instanceof Error)) return String(e)
   const raw = e.message
-  if (raw.includes('draft_image_pool_full')) return `图稿池已满（最多 ${MAX_FALLBACK} 张，可在服务端环境变量调整）`
+  if (raw.includes('draft_image_pool_full'))
+    return `当前图稿池已满（每组最多 ${MAX_FALLBACK} 张）`
+  if (raw.includes('cannot_delete_last_image_pool'))
+    return '至少保留一个图稿池，无法删除'
+  if (raw.includes('image_pool_locked_by_composed_snapshot'))
+    return '该图稿池内有图稿被组合草稿引用，无法删除'
   if (raw.includes('image_locked_by_composed_snapshot'))
     return '该图稿被「笔记管理」组合草稿快照引用，无法删除（PRD §5.3）'
   const m = raw.match(/\{[\s\S]*"detail"\s*:\s*"([^"]+)"[\s\S]*\}\s*$/)
@@ -92,19 +99,18 @@ async function placeholderPngFile(versionLabel: string, titleHint: string): Prom
 export function ImagesPage() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [entryId, setEntryId] = useState<string | null>(null)
-  const [entries, setEntries] = useState<EntrySummary[]>([])
   const [entry, setEntry] = useState<EntryDetail | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
   const [versions, setVersions] = useState<CopyVersion[]>([])
   const [sourceVersionId, setSourceVersionId] = useState<string | null>(null)
+  const [activePoolId, setActivePoolId] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [busyGen, setBusyGen] = useState(false)
   const [busyUpload, setBusyUpload] = useState(false)
+  const [busyPool, setBusyPool] = useState(false)
 
   const poolLimit = entry?.draft_image_pool_limit ?? MAX_FALLBACK
-  const count = entry?.images?.length ?? 0
-  const atCap = count >= poolLimit
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
@@ -164,6 +170,11 @@ export function ImagesPage() {
       if (cur && vers.some((v) => v.id === cur)) return cur
       return primary?.id ?? vers[0]?.id ?? null
     })
+    const pools = d.image_pools ?? []
+    setActivePoolId((cur) => {
+      if (cur && pools.some((p) => p.id === cur)) return cur
+      return pools[0]?.id ?? null
+    })
     return d
   }, [])
 
@@ -174,7 +185,6 @@ export function ImagesPage() {
         setLoadErr(null)
         const list = await apiGet<EntrySummary[]>('/api/entries')
         if (cancelled) return
-        setEntries(list)
         if (!list.length) {
           setLoadErr('暂无内容条目')
           return
@@ -219,10 +229,33 @@ export function ImagesPage() {
     return () => window.removeEventListener('xhs:entry-updated', on)
   }, [entryId, reloadAll])
 
-  const sortedImages = useMemo(() => {
-    if (!entry?.images) return []
-    return [...entry.images].sort((a, b) => a.sort_order - b.sort_order)
+  const sortedPools = useMemo(() => {
+    const pools = entry?.image_pools ?? []
+    return [...pools].sort((a, b) => a.sort_order - b.sort_order)
   }, [entry])
+
+  const activePool = useMemo(
+    () => sortedPools.find((p) => p.id === activePoolId) ?? null,
+    [sortedPools, activePoolId],
+  )
+
+  const poolImages = useMemo(() => {
+    if (!entry?.images || !activePoolId) return []
+    return [...entry.images]
+      .filter((im) => im.pool_id === activePoolId)
+      .sort((a, b) => a.sort_order - b.sort_order)
+  }, [entry, activePoolId])
+
+  const count = activePool?.image_count ?? poolImages.length
+  const atCap = count >= poolLimit
+
+  const uploadOpts = useMemo(
+    () => ({
+      imagePoolId: activePoolId ?? undefined,
+      sourceCopyVersionId: sourceVersionId ?? undefined,
+    }),
+    [activePoolId, sourceVersionId],
+  )
 
   const applyReorder = async (ids: string[]) => {
     if (!entryId) return
@@ -233,10 +266,10 @@ export function ImagesPage() {
 
   const moveImage = async (img: DraftImage, dir: -1 | 1) => {
     if (!entryId) return
-    const idx = sortedImages.findIndex((i) => i.id === img.id)
+    const idx = poolImages.findIndex((i) => i.id === img.id)
     const j = idx + dir
-    if (idx < 0 || j < 0 || j >= sortedImages.length) return
-    const next = [...sortedImages]
+    if (idx < 0 || j < 0 || j >= poolImages.length) return
+    const next = [...poolImages]
     const t = next[idx]
     next[idx] = next[j]
     next[j] = t
@@ -285,18 +318,80 @@ export function ImagesPage() {
     }
   }
 
+  const createPool = async () => {
+    if (!entryId) return
+    const n = sortedPools.length + 1
+    const name = window.prompt('新建图稿池名称', `图稿池 ${n}`)
+    if (!name?.trim()) return
+    setBusyPool(true)
+    try {
+      const pool = await apiPost<DraftImagePool>(`/api/entries/${entryId}/image-pools`, {
+        name: name.trim(),
+      })
+      await reloadAll(entryId)
+      setActivePoolId(pool.id)
+      showToast('已新建图稿池')
+    } catch (e) {
+      showToast(parseApiErr(e))
+    } finally {
+      setBusyPool(false)
+    }
+  }
+
+  const renamePool = async (pool: DraftImagePool) => {
+    if (!entryId) return
+    const name = window.prompt('重命名图稿池', pool.name)
+    if (!name?.trim() || name.trim() === pool.name) return
+    setBusyPool(true)
+    try {
+      await apiPatch<DraftImagePool>(`/api/entries/${entryId}/image-pools/${pool.id}`, {
+        name: name.trim(),
+      })
+      await reloadAll(entryId)
+      showToast('已重命名')
+    } catch (e) {
+      showToast(parseApiErr(e))
+    } finally {
+      setBusyPool(false)
+    }
+  }
+
+  const deletePool = async (pool: DraftImagePool) => {
+    if (!entryId) return
+    if (sortedPools.length <= 1) {
+      showToast('至少保留一个图稿池')
+      return
+    }
+    const msg =
+      pool.image_count > 0
+        ? `确定删除「${pool.name}」及其 ${pool.image_count} 张图稿？`
+        : `确定删除「${pool.name}」？`
+    if (!window.confirm(msg)) return
+    setBusyPool(true)
+    try {
+      await apiDelete(`/api/entries/${entryId}/image-pools/${pool.id}`)
+      await reloadAll(entryId)
+      emitEntryUpdated(entryId)
+      showToast('已删除图稿池')
+    } catch (e) {
+      showToast(parseApiErr(e))
+    } finally {
+      setBusyPool(false)
+    }
+  }
+
   const genPlaceholderIntoPool = async () => {
-    if (!entryId || !sourceVersionId || atCap) return
+    if (!entryId || !sourceVersionId || !activePoolId || atCap) return
     setBusyGen(true)
     try {
       const ver = versions.find((v) => v.id === sourceVersionId)
       const label = ver ? vLabel(ver.id) : sourceVersionId.slice(0, 8)
       const titleHint = (ver?.title || entry?.title || '').trim()
       const file = await placeholderPngFile(label, titleHint)
-      await apiUploadEntryImage(entryId, file, { sourceCopyVersionId: sourceVersionId })
+      await apiUploadEntryImage(entryId, file, uploadOpts)
       await reloadAll(entryId)
       emitEntryUpdated(entryId)
-      showToast('已生成示意图稿并入池（与工作台图稿池同源）')
+      showToast(`已生成示意图稿（${Math.min(count + 1, poolLimit)}/${poolLimit}）`)
     } catch (e) {
       showToast(parseApiErr(e))
     } finally {
@@ -324,7 +419,7 @@ export function ImagesPage() {
     try {
       let n = 0
       for (const f of batch) {
-        await apiUploadEntryImage(entryId, f, { sourceCopyVersionId: sourceVersionId ?? undefined })
+        await apiUploadEntryImage(entryId, f, uploadOpts)
         n += 1
       }
       await reloadAll(entryId)
@@ -338,12 +433,13 @@ export function ImagesPage() {
   }
 
   const addByUrl = async (url: string) => {
-    if (!entryId || !url.trim() || atCap) return
+    if (!entryId || !url.trim() || !activePoolId || atCap) return
     try {
       await apiPost<DraftImage>(`/api/entries/${entryId}/images`, {
         public_url: url.trim(),
+        pool_id: activePoolId,
         include_in_publish: true,
-        source_copy_version_id: sourceVersionId,
+        source_copy_version_id: sourceVersionId ?? undefined,
       })
       await reloadAll(entryId)
       emitEntryUpdated(entryId)
@@ -369,7 +465,7 @@ export function ImagesPage() {
   }
 
   return (
-    <div className="relative mx-auto max-w-5xl text-slate-900">
+    <div className="relative mx-auto max-w-6xl text-slate-900">
       {toast && (
         <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg">
           {toast}
@@ -379,89 +475,145 @@ export function ImagesPage() {
       <div className="mb-4 max-w-3xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
         <strong className="text-slate-200">图片生成与管理</strong>
         <br />
-        结合<strong>当前条目主文案</strong>生成图稿；维护<strong>图稿池</strong>（勾选参与发布、顺序、封面标星）。同步至「
-        <strong>工作台与发布</strong>」页的图片条；可在<strong>笔记管理</strong>与文案组合为新笔记。
+        左侧管理<strong>图稿池分组</strong>（每组最多 {poolLimit} 张）；中栏在生图参数下选择参考文案版本；右侧维护当前池图稿。完成后在「
+        <strong>笔记管理</strong>」组合草稿，于「工作台与发布」载入发布。
       </div>
 
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <label className="text-xs text-slate-500">
-          当前条目
-          <select
-            className="ml-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
-            value={entryId}
-            onChange={(e) => {
-              const id = e.target.value
-              setEntryId(id)
-              void reloadAll(id).catch((err) => showToast(parseApiErr(err)))
-            }}
-          >
-            {entries.map((en) => (
-              <option key={en.id} value={en.id}>
-                {(en.title || '（无标题）').slice(0, 36)}
-                {en.title && en.title.length > 36 ? '…' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Link to="/workbench" className="text-xs font-medium text-brand hover:underline">
-          去工作台与发布
-        </Link>
+      <div className="mb-4 flex flex-wrap gap-3 text-xs">
         <Link to="/copy" className="text-xs font-medium text-brand hover:underline">
           文案生成与管理
         </Link>
+        <span className="text-slate-300">·</span>
+        <Link to="/notes" className="text-xs font-medium text-brand hover:underline">
+          笔记管理
+        </Link>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-[220px_1fr_1.15fr]">
+        <aside className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">图稿池</h2>
+            <button
+              type="button"
+              disabled={busyPool}
+              onClick={() => void createPool()}
+              className="rounded-lg border border-brand px-2 py-1 text-[11px] font-medium text-brand hover:bg-rose-50 disabled:opacity-50"
+            >
+              新建
+            </button>
+          </div>
+          <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+            每组最多 {poolLimit} 张；切换池后在中栏生成或上传。
+          </p>
+          <ul className="max-h-[min(52vh,560px)] space-y-1 overflow-y-auto pr-1 text-sm">
+            {sortedPools.length === 0 ? (
+              <li className="px-2 py-2 text-xs text-slate-400">暂无图稿池</li>
+            ) : (
+              sortedPools.map((p) => {
+                const active = p.id === activePoolId
+                return (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActivePoolId(p.id)
+                        setPreviewUrl(null)
+                      }}
+                      className={`w-full rounded-lg px-2 py-2 text-left ${
+                        active
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="block truncate">{p.name}</span>
+                      <span className="mt-0.5 block text-[10px] text-slate-400">
+                        {p.image_count}/{poolLimit} 张
+                      </span>
+                    </button>
+                    <div className="mt-0.5 flex gap-2 px-2 pb-1 text-[10px]">
+                      <button
+                        type="button"
+                        disabled={busyPool}
+                        className="text-brand hover:underline disabled:opacity-50"
+                        onClick={() => void renamePool(p)}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyPool || sortedPools.length <= 1}
+                        className="text-red-600 hover:underline disabled:opacity-40"
+                        onClick={() => void deletePool(p)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </li>
+                )
+              })
+            )}
+          </ul>
+        </aside>
+
         <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="font-semibold text-slate-900">生图参数</h2>
           <p className="text-xs text-slate-500">
-            由下方所选<strong>文案版本</strong>的标题与正文节选 + 模版视觉风格约束拼接；切换版本后预览会立即更新。
+            由所选参考文案 + 模版视觉风格拼接（入当前池：
+            <strong>{activePool?.name ?? '—'}</strong>）
           </p>
           <textarea
             readOnly
-            rows={8}
+            rows={6}
             className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-800"
             value={paramSummary}
           />
-          <label className="block text-xs text-slate-500">
-            入池时记录的「来源文案版本」（切换后点「生成」将写入新溯源）
-            <select
-              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-              value={sourceVersionId ?? ''}
-              onChange={(e) => setSourceVersionId(e.target.value || null)}
-            >
-              {sortedAsc.length === 0 ? (
-                <option value="">（暂无文案版本，请先在文案页生成或保存）</option>
-              ) : null}
-              {sortedAsc.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {vLabel(v.id)}
-                  {v.is_primary ? '（主版本）' : ''} · {(v.title || '无标题').slice(0, 40)}
-                </option>
-              ))}
-            </select>
-          </label>
+
+          <div className="border-t border-slate-100 pt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">参考文案版本</label>
+            <p className="mb-2 text-[11px] text-slate-500">仅用于生图提示词，不绑定图稿归属。</p>
+            {sortedAsc.length === 0 ? (
+              <p className="text-xs text-slate-400">暂无文案版本，请先到「文案生成与管理」创建。</p>
+            ) : (
+              <select
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                value={sourceVersionId ?? ''}
+                onChange={(e) => setSourceVersionId(e.target.value || null)}
+              >
+                {sortedAsc.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {vLabel(v.id)}
+                    {v.is_primary ? ' · 主' : ''} · {formatYmdHm(v.created_at)} ·{' '}
+                    {(v.title || '无标题').slice(0, 24)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
           <button
             type="button"
-            disabled={busyGen || atCap || !sourceVersionId}
+            disabled={busyGen || atCap || !sourceVersionId || !activePoolId}
             onClick={() => void genPlaceholderIntoPool()}
             className="w-full rounded-lg bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busyGen ? '生成中…' : atCap ? `已达上限（${poolLimit} 张）` : '生成新图稿（入池）'}
+            {busyGen
+              ? '生成中…'
+              : atCap
+                ? `当前池已满（${poolLimit} 张）`
+                : `生成新图稿（${count}/${poolLimit}）`}
           </button>
           <p className="text-[0.7rem] leading-relaxed text-slate-400">
-            未接本机生图模型时，入池为 1080×1080 占位 PNG，仍写入 <code className="text-slate-500">source_copy_version_id</code> 供列表展示与 PRD
-            溯源。
+            未接本机生图模型时，入池为 1080×1080 占位 PNG（示意）。
           </p>
           <div className="border-t border-slate-100 pt-3">
-            <p className="mb-2 text-xs font-medium text-slate-600">本地上传入池</p>
+            <p className="mb-2 text-xs font-medium text-slate-600">本地上传入当前池</p>
             <label className="inline-flex cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
                 multiple
                 className="hidden"
-                disabled={busyUpload || atCap}
+                disabled={busyUpload || atCap || !activePoolId}
                 onChange={(e) => {
                   void onPickLocal(e.target.files)
                   e.target.value = ''
@@ -469,17 +621,19 @@ export function ImagesPage() {
               />
               {busyUpload ? '上传中…' : '选择本地图片'}
             </label>
-            <UrlAddRow disabled={atCap} onAdd={(u) => void addByUrl(u)} />
+            <UrlAddRow disabled={atCap || !activePoolId} onAdd={(u) => void addByUrl(u)} />
           </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-sm font-semibold text-slate-900">当前条目图稿池</h3>
+          <h3 className="text-sm font-semibold text-slate-900">
+            {activePool ? activePool.name : '图稿列表'}
+          </h3>
           <p className="mb-3 mt-1 text-xs text-slate-500">
-            最多 {poolLimit} 张（与服务端校验一致）；勾选「参与发布」并排序。当前 {count}/{poolLimit}。
+            本池最多 {poolLimit} 张；勾选「参与发布」并排序。当前 {count}/{poolLimit}。
           </p>
           <ul className="max-h-[min(52vh,640px)] space-y-2 overflow-y-auto pr-1">
-            {sortedImages.map((img, idx) => (
+            {poolImages.map((img, idx) => (
               <li
                 key={img.id}
                 className={`flex gap-3 rounded-lg border p-2 text-sm ${
@@ -495,9 +649,6 @@ export function ImagesPage() {
                 </button>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                    <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-                      来源文案 {vLabel(img.source_copy_version_id)}
-                    </span>
                     {img.is_cover && (
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
                         封面
@@ -533,7 +684,7 @@ export function ImagesPage() {
                     </button>
                     <button
                       type="button"
-                      disabled={idx >= sortedImages.length - 1}
+                      disabled={idx >= poolImages.length - 1}
                       className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] hover:bg-slate-50 disabled:opacity-40"
                       onClick={() => void moveImage(img, 1)}
                     >
@@ -551,11 +702,11 @@ export function ImagesPage() {
               </li>
             ))}
           </ul>
-          {sortedImages.length === 0 && (
-            <p className="mt-3 text-xs text-slate-400">暂无图稿，请使用左侧入池或在工作台上传。</p>
+          {poolImages.length === 0 && (
+            <p className="mt-3 text-xs text-slate-400">本池暂无图稿，请在中栏生成或上传。</p>
           )}
           <p className="mt-3 text-xs text-slate-400">
-            每条图稿记录「来源文案版本」；切换主文案版本后再生图将带新版本标签（与 §5.3 一致）。
+            各池图稿可在「笔记管理」组合草稿时跨池勾选。
           </p>
           <div className="mt-3 aspect-square max-h-[280px] overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-rose-100 via-white to-sky-100">
             {previewUrl ? (

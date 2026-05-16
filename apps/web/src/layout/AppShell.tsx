@@ -176,12 +176,7 @@ export function AppShell() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/80 px-6 backdrop-blur">
-          <div className="flex min-w-0 items-center gap-3">
-            <h1 className="truncate text-lg font-semibold text-slate-900">{pageTitle}</h1>
-            <span className="hidden truncate text-xs text-slate-400 sm:inline">
-              当前条目：初一数学 · 提分笔记 #042
-            </span>
-          </div>
+          <h1 className="truncate text-lg font-semibold text-slate-900">{pageTitle}</h1>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"

@@ -12,10 +12,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.config import settings
 
 
+class DraftImagePoolOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    sort_order: int
+    image_count: int = 0
+
+
 class DraftImageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    pool_id: UUID
     sort_order: int
     public_url: str
     is_cover: bool
@@ -40,10 +50,11 @@ class EntryDetailOut(BaseModel):
     topics: List[str] = Field(default_factory=list)
     updated_at: datetime
     images: List[DraftImageOut]
+    image_pools: List[DraftImagePoolOut] = Field(default_factory=list)
     selected_template_id: Optional[UUID] = None
     draft_image_pool_limit: int = Field(
         default_factory=lambda: settings.max_draft_images_per_entry,
-        description="PRD §5.3：图稿池张数上限，与入池校验一致",
+        description="PRD §5.3：每组图稿池张数上限（默认 18）",
     )
 
     @field_validator("topics", mode="before")
@@ -78,8 +89,18 @@ class EntryPatchIn(BaseModel):
         return out
 
 
+class DraftImagePoolCreateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+class DraftImagePoolPatchIn(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    sort_order: Optional[int] = None
+
+
 class DraftImageCreateIn(BaseModel):
     public_url: str = Field(..., min_length=1, max_length=8000)
+    pool_id: Optional[UUID] = None
     sort_order: Optional[int] = None
     is_cover: bool = False
     include_in_publish: bool = True
@@ -207,11 +228,52 @@ class SyncNotesResponse(BaseModel):
     message: str
 
 
+class DraftFolderCreateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    parent_id: Optional[UUID] = None
+
+
+class DraftFolderUpdateIn(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+
+
+class DraftFolderOut(BaseModel):
+    id: UUID
+    name: str
+    parent_id: Optional[UUID] = None
+    sort_order: int = 0
+
+
+class DraftFolderTreeOut(BaseModel):
+    """一级分类及其二级子目录。"""
+
+    id: UUID
+    name: str
+    sort_order: int = 0
+    children: List[DraftFolderOut] = Field(default_factory=list)
+
+
 class ComposedDraftCreateIn(BaseModel):
     entry_id: UUID
     snapshot_copy_version_id: UUID
     ordered_image_asset_ids: List[UUID] = Field(default_factory=list)
     cover_asset_id: Optional[UUID] = None
+    folder_id: Optional[UUID] = None
+
+
+class ComposedDraftPatchIn(BaseModel):
+    folder_id: Optional[UUID] = None
+    snapshot_title: Optional[str] = None
+    snapshot_body: Optional[str] = None
+    ordered_image_asset_ids: Optional[List[UUID]] = None
+    cover_asset_id: Optional[UUID] = None
+
+
+class ComposedDraftSnapshotImageOut(BaseModel):
+    id: UUID
+    public_url: str
+    position: int
 
 
 class ComposedDraftOut(BaseModel):
@@ -226,6 +288,8 @@ class ComposedDraftOut(BaseModel):
     ordered_image_asset_ids: List[UUID]
     cover_asset_id: Optional[UUID] = None
     optional_cover_preview_url: Optional[str] = None
+    folder_id: Optional[UUID] = None
+    folder_path: Optional[str] = None
 
     @field_validator("ordered_image_asset_ids", mode="before")
     @classmethod
@@ -241,6 +305,11 @@ class ComposedDraftOut(BaseModel):
             except (ValueError, TypeError):
                 continue
         return out
+
+
+class ComposedDraftDetailOut(ComposedDraftOut):
+    snapshot_images: List[ComposedDraftSnapshotImageOut] = Field(default_factory=list)
+    updated_at: datetime
 
 
 class OverviewTopNoteOut(BaseModel):

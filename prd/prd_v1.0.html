@@ -543,12 +543,23 @@
       </section>
 
       <section id="flow">
-        <h2>六、业务流程图</h2>
-        <p class="muted">以下为高阶主流程骨架；异常分支与平台侧细节在原型审查后细化并同步更新本文档。</p>
-        <div class="placeholder">
-          建议使用 Mermaid（如 <code>flowchart TD</code>）在 <code>flowcharts/</code> 中维护可渲染源文件；本版 PRD 内嵌示意如下（若浏览器未加载 Mermaid 渲染库，可直接阅读文字节点逻辑）。
+        <h2>六、系统使用流程与业务流程图</h2>
+        <div class="callout" style="margin-bottom:0.75rem;">
+          <strong>v1.0 为全量愿景稿</strong>（含合规、自动发布等，多数已在 v1.1+ 收敛）。<strong>当前产品主流程以 v1.2 为准</strong>，见
+          <a href="prd_v1.2.html#flow"><code>prd_v1.2.html</code> §6</a> 与 <code>README.md</code>「系统使用流程」。
         </div>
+        <p><strong>v1.2 一句话主链路</strong>：模版 + 竞品（可选）→ 生成文案版本 → 按版本生图入池 → 组合成草稿笔记 → 工作台载入、精修、辅助发布。</p>
         <pre style="background:#fafbfc;border:1px solid var(--border);padding:0.85rem;border-radius:8px;overflow:auto;font-size:0.8rem;line-height:1.45;">flowchart TD
+  TPL[模版管理 · 可选] --> COPY
+  CMP[竞品分析 · 可选] --> COPY
+  COPY[文案生成与管理 · 生成文案版本] --> IMG
+  IMG[图片生成与管理 · 按版本生图入池] --> NOTES
+  NOTES[笔记管理 · 组合文案+图稿→草稿] --> WB
+  WB[工作台与发布 · 载入·编辑·预览] --> PUB
+  PUB[Chrome 扩展优先 / 剪贴板降级] --> XHS[creator.xiaohongshu.com 人工发布]
+        </pre>
+        <p class="muted">下图保留 v1.0 原始愿景流程（含合规/自动发布分支），仅供历史对照。</p>
+        <pre style="background:#fafbfc;border:1px solid var(--border);padding:0.85rem;border-radius:8px;overflow:auto;font-size:0.8rem;line-height:1.45;margin-top:0.5rem;">flowchart TD
   A[打开工具/新建内容条目] --> B[竞品链接或文案粘贴/授权导入]
   B --> D[选模版+竞品材料生成文案初稿]
   D --> E[应用K12规则与清单约束]

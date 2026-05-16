@@ -31,6 +31,11 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="GoogleImageSession.created_at.desc()",
     )
+    draft_folders: Mapped[list["DraftFolder"]] = relationship(
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        foreign_keys="DraftFolder.owner_id",
+    )
 
 
 class Entry(Base):
@@ -64,6 +69,11 @@ class Entry(Base):
         cascade="all, delete-orphan",
         foreign_keys="CopyVersion.entry_id",
         order_by="CopyVersion.created_at.desc()",
+    )
+    image_pools: Mapped[list["DraftImagePool"]] = relationship(
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        order_by="DraftImagePool.sort_order",
     )
     images: Mapped[list["DraftImage"]] = relationship(
         back_populates="entry",
@@ -182,11 +192,40 @@ class CopyVersion(Base):
     )
 
 
+class DraftImagePool(Base):
+    """条目内图稿池分组，每组最多 max_draft_images_per_entry 张（默认 18）。"""
+
+    __tablename__ = "draft_image_pools"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("entries.id", ondelete="CASCADE"),
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False, default="图稿池")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    entry: Mapped["Entry"] = relationship(back_populates="image_pools")
+    images: Mapped[list["DraftImage"]] = relationship(
+        back_populates="pool",
+        cascade="all, delete-orphan",
+        order_by="DraftImage.sort_order",
+    )
+
+
 class DraftImage(Base):
     __tablename__ = "draft_images"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entry_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), index=True)
+    pool_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("draft_image_pools.id", ondelete="CASCADE"),
+        index=True,
+    )
     source_copy_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("copy_versions.id", ondelete="SET NULL"),
@@ -200,6 +239,7 @@ class DraftImage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     entry: Mapped["Entry"] = relationship(back_populates="images")
+    pool: Mapped["DraftImagePool"] = relationship(back_populates="images")
     source_copy_version: Mapped[Optional["CopyVersion"]] = relationship(
         back_populates="images_sourced_from",
         foreign_keys=[source_copy_version_id],
@@ -233,6 +273,42 @@ class XhsPublishedNote(Base):
     owner: Mapped["User"] = relationship(back_populates="xhs_published_notes")
 
 
+class DraftFolder(Base):
+    """笔记管理：组合草稿二级目录（一级 parent_id=NULL，二级 parent_id→一级）。"""
+
+    __tablename__ = "draft_folders"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("draft_folders.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    owner: Mapped["User"] = relationship(back_populates="draft_folders", foreign_keys=[owner_id])
+    parent: Mapped[Optional["DraftFolder"]] = relationship(
+        remote_side=[id],
+        back_populates="children",
+        foreign_keys=[parent_id],
+    )
+    children: Mapped[list["DraftFolder"]] = relationship(
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        foreign_keys=[parent_id],
+        order_by="DraftFolder.sort_order",
+    )
+    composed_drafts: Mapped[list["ComposedDraft"]] = relationship(back_populates="folder")
+
+
 class ComposedDraft(Base):
     """PRD §5.6 / §5.9: 组合笔记草稿，持不可变快照（文案版本 + 图稿顺序 + 封面）。"""
 
@@ -244,12 +320,20 @@ class ComposedDraft(Base):
         ForeignKey("entries.id", ondelete="CASCADE"),
         index=True,
     )
+    folder_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("draft_folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     snapshot_copy_version_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("copy_versions.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
+    snapshot_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    snapshot_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ordered_image_asset_ids: Mapped[list] = mapped_column(
         JSONB,
         nullable=False,
@@ -267,6 +351,7 @@ class ComposedDraft(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     entry: Mapped["Entry"] = relationship(back_populates="composed_drafts")
+    folder: Mapped[Optional["DraftFolder"]] = relationship(back_populates="composed_drafts")
     snapshot_copy_version: Mapped["CopyVersion"] = relationship(
         foreign_keys=[snapshot_copy_version_id],
     )

@@ -14,9 +14,12 @@ import {
   type EntryDetail,
   type EntrySummary,
   type PublishAttemptRow,
-  type PublishedNote,
 } from '../lib/api'
-import { persistCurrentEntryId, resolveCurrentEntryId } from '../lib/currentEntry'
+import {
+  persistCurrentEntryId,
+  resolveCurrentEntryId,
+  XHS_PENDING_LOAD_COMPOSED_DRAFT,
+} from '../lib/currentEntry'
 import {
   formatBodyForXhsPublish,
   getBridgeExtensionId,
@@ -34,10 +37,8 @@ type NoteImportOpt = {
   label: string
   title: string
   body: string
-  kind: 'pub' | 'cmp'
-  snapshotCopyVersionId?: string
-  orderedImageIds?: string[]
-  coverAssetId?: string | null
+  orderedImageIds: string[]
+  coverAssetId: string | null
 }
 
 async function applyComposedDraftImageState(
@@ -250,32 +251,16 @@ export function WorkbenchPage() {
     setNoteImportLoading(true)
     ;(async () => {
       try {
-        const [pub, drafts] = await Promise.all([
-          apiGet<PublishedNote[]>('/api/notes/published'),
-          apiGet<ComposedDraftRow[]>('/api/notes/composed-drafts'),
-        ])
+        const drafts = await apiGet<ComposedDraftRow[]>('/api/notes/composed-drafts')
         if (cancelled) return
         const opts: NoteImportOpt[] = []
-        for (const p of pub) {
-          const t = (p.title || '').trim() || '（无标题）'
-          opts.push({
-            key: `pub:${p.id}`,
-            label: `[已发布] ${t.slice(0, 40)}${t.length > 40 ? '…' : ''}`,
-            title: p.title || '',
-            body: p.body ?? '',
-            kind: 'pub',
-          })
-        }
         for (const d of drafts.filter((x) => x.entry_id === entryId)) {
           const t = (d.snapshot_title || '').trim() || '（无标题）'
-          const et = (d.entry_title || '').trim().slice(0, 12)
           opts.push({
             key: `cmp:${d.id}`,
-            label: `[组合草稿 · ${et}] ${t.slice(0, 28)}${t.length > 28 ? '…' : ''}`,
+            label: t.slice(0, 48) + (t.length > 48 ? '…' : ''),
             title: d.snapshot_title || '',
             body: d.snapshot_body ?? '',
-            kind: 'cmp',
-            snapshotCopyVersionId: d.snapshot_copy_version_id,
             orderedImageIds: (d.ordered_image_asset_ids || []).map((x) => String(x)),
             coverAssetId: d.cover_asset_id != null ? String(d.cover_asset_id) : null,
           })
@@ -324,11 +309,12 @@ export function WorkbenchPage() {
     return () => window.removeEventListener('xhs:save-draft', onDraft)
   }, [title, body, topicsInput, patchEntry, showToast])
 
-  const loadFromNoteImport = useCallback(async () => {
+  const loadFromNoteImport = useCallback(async (keyOverride?: string) => {
     if (!entryId || !entry) return
-    const sel = noteImportOptions.find((o) => o.key === noteImportKey)
+    const importKey = keyOverride ?? noteImportKey
+    const sel = noteImportOptions.find((o) => o.key === importKey)
     if (!sel) {
-      showToast('请先在下拉框中选择一条笔记')
+      showToast('请先选择一条组合草稿')
       return
     }
     const dirty = title !== entry.title || body !== entry.body
@@ -342,16 +328,13 @@ export function WorkbenchPage() {
         body: sel.body,
         topics: topicList,
       })
-      let next = d
-      if (sel.kind === 'cmp') {
-        await applyComposedDraftImageState(
-          entryId,
-          d,
-          sel.orderedImageIds ?? [],
-          sel.coverAssetId ?? null,
-        )
-        next = await apiGet<EntryDetail>(`/api/entries/${entryId}`)
-      }
+      await applyComposedDraftImageState(
+        entryId,
+        d,
+        sel.orderedImageIds,
+        sel.coverAssetId,
+      )
+      const next = await apiGet<EntryDetail>(`/api/entries/${entryId}`)
       setEntry(next)
       setTitle(next.title)
       setBody(next.body)
@@ -359,13 +342,9 @@ export function WorkbenchPage() {
         new CustomEvent('xhs:entry-updated', { detail: { entryId } }),
       )
       showToast(
-        sel.kind === 'cmp'
-          ? dirty
-            ? '已载入组合草稿：标题与正文已覆盖；配图参与发布、顺序与封面已按草稿同步（其余图仍保留在池中）。'
-            : '已载入组合草稿：标题、正文与配图发布设置已同步。'
-          : dirty
-            ? '已载入标题与正文（未保存的编辑已覆盖；图稿池与话题未变）。已与主文案版本同步。'
-            : '已载入标题与正文（图稿池与话题未变）。已与主文案版本同步。',
+        dirty
+          ? '已载入组合草稿：标题与正文已覆盖；配图参与发布、顺序与封面已按草稿同步（其余图仍保留在池中）。'
+          : '已载入组合草稿：标题、正文与配图发布设置已同步。',
       )
     } catch (e) {
       showToast(e instanceof Error ? e.message : '载入失败')
@@ -382,6 +361,33 @@ export function WorkbenchPage() {
     body,
     topicsInput,
     showToast,
+  ])
+
+  useEffect(() => {
+    if (!entryId || !entry || noteImportLoading || noteImportBusy) return
+    let pending: string | null = null
+    try {
+      pending = sessionStorage.getItem(XHS_PENDING_LOAD_COMPOSED_DRAFT)
+    } catch {
+      return
+    }
+    if (!pending) return
+    const key = `cmp:${pending}`
+    if (!noteImportOptions.some((o) => o.key === key)) return
+    try {
+      sessionStorage.removeItem(XHS_PENDING_LOAD_COMPOSED_DRAFT)
+    } catch {
+      /* ignore */
+    }
+    setNoteImportKey(key)
+    void loadFromNoteImport(key)
+  }, [
+    entryId,
+    entry,
+    noteImportLoading,
+    noteImportBusy,
+    noteImportOptions,
+    loadFromNoteImport,
   ])
 
   const sortedImages = useMemo(() => {
@@ -630,8 +636,6 @@ export function WorkbenchPage() {
     }
   }
 
-  const entryShort = entryId ? `#${entryId.replace(/-/g, '').slice(-4)}` : '#042'
-
   if (loadErr) {
     return (
       <div className="mx-auto max-w-3xl rounded-xl border border-red-100 bg-white p-8 text-slate-800 shadow-sm">
@@ -672,9 +676,8 @@ export function WorkbenchPage() {
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_320px]">
         {/* 左：图文编辑卡片 */}
         <div className="flex max-h-[calc(100vh-6rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-3">
+          <div className="flex shrink-0 items-center border-b border-slate-100 px-5 py-3">
             <span className="text-sm font-semibold text-slate-900">图文编辑</span>
-            <span className="text-xs text-slate-400">条目 {entryShort}</span>
           </div>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
@@ -683,7 +686,7 @@ export function WorkbenchPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                 <div className="min-w-0 flex-1 sm:min-w-[220px]">
                   <label className="mb-1 block text-xs text-slate-500">
-                    从笔记管理选择笔记，仅填充标题与正文（不替换图稿池）
+                    载入组合草稿（笔记管理中「组合生成」）
                   </label>
                   <select
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 disabled:opacity-60"
@@ -692,7 +695,11 @@ export function WorkbenchPage() {
                     onChange={(e) => setNoteImportKey(e.target.value)}
                   >
                     <option value="">
-                      {noteImportLoading ? '加载笔记列表…' : '— 请选择已发布历史或组合草稿 —'}
+                      {noteImportLoading
+                        ? '加载草稿列表…'
+                        : noteImportOptions.length
+                          ? '— 请选择组合草稿 —'
+                          : '— 当前条目暂无组合草稿 —'}
                     </option>
                     {noteImportOptions.map((o) => (
                       <option key={o.key} value={o.key}>
@@ -716,8 +723,7 @@ export function WorkbenchPage() {
                 </div>
               </div>
               <p className="text-xs text-slate-400">
-                与 PRD §5.4 一致：仅写入标题与正文；当前条目的图稿池不变。保存后与「文案生成」主版本（CopyVersion
-                is_primary）同源同步。
+                仅支持载入「笔记管理」中的组合草稿；标题、正文与配图发布设置将按草稿快照同步。文案版本与已发布历史不会直接写入工作台。
               </p>
             </div>
 

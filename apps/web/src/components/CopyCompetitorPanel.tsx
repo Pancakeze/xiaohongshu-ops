@@ -12,6 +12,7 @@ import {
   tryExtensionScrapeProfileNotes,
   tryExtensionScrapeTopNotes,
 } from '../lib/publishBridge'
+import { formatYmdHmDashKeyword } from '../lib/formatDate'
 
 type Props = {
   entryId: string
@@ -247,20 +248,11 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
             >
               <option value="">— 请选择 —</option>
               <option value="__latest__">最近一次分析（本次会话）</option>
-              {history.map((h) => {
-                const t = new Date(h.created_at).toLocaleString('zh-CN', {
-                  month: '2-digit',
-                  day: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
-                const k = (h.source_keyword || '').replace(/\s+/g, ' ').slice(0, 32)
-                return (
-                  <option key={h.id} value={h.id}>
-                    {t} · {k || '（无来源）'}
-                  </option>
-                )
-              })}
+              {history.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {formatYmdHmDashKeyword(h.created_at, h.source_keyword || '')}
+                </option>
+              ))}
             </select>
           </label>
         </div>

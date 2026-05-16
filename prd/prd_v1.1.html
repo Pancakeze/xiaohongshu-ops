@@ -539,23 +539,23 @@
       </section>
 
       <section id="flow">
-        <h2>六、业务流程图</h2>
-        <p class="muted">以下为高阶主流程骨架；异常分支与平台侧细节在原型审查后细化并同步更新本文档。</p>
-        <div class="placeholder">
-          建议使用 Mermaid（如 <code>flowchart TD</code>）在 <code>flowcharts/</code> 中维护可渲染源文件；本版 PRD 内嵌示意如下（若浏览器未加载 Mermaid 渲染库，可直接阅读文字节点逻辑）。
+        <h2>六、系统使用流程与业务流程图</h2>
+        <div class="callout" style="margin-bottom:0.75rem;">
+          <strong>以 v1.2 为准</strong>：完整步骤表、对象关系与当前实现说明见
+          <a href="prd_v1.2.html#flow"><code>prd_v1.2.html</code> §6</a> 与仓库根目录
+          <code>README.md</code>「系统使用流程」。Mermaid 源文件：<code>flowcharts/main-flow.mmd</code>。
         </div>
+        <p><strong>一句话主链路</strong>：模版 + 竞品（可选）→ 生成文案版本 → 按版本生图入池 → 组合成草稿笔记 → 工作台载入、精修、辅助发布。</p>
         <pre style="background:#fafbfc;border:1px solid var(--border);padding:0.85rem;border-radius:8px;overflow:auto;font-size:0.8rem;line-height:1.45;">flowchart TD
-  A[打开工具/新建内容条目] --> B[竞品链接或文案粘贴/授权导入]
-  B --> D[选模版+生成文案初稿]
-  D --> IMG[图片生成与管理: 生图入图稿池]
-  IMG --> WB[工作台与发布: 编辑+预览+发布核对]
-  D --> WB
-  WB --> NB[笔记库: 历史同步与组合草稿]
-  NB --> WB
-  WB --> K[打开浏览器版创作发布页并辅助填入可写字段]
-  K --> L[网页端补传相册等并人工点击官方发布]
+  TPL[模版管理 · 可选] --> COPY
+  CMP[竞品分析 · 可选] --> COPY
+  COPY[文案生成与管理 · 生成文案版本] --> IMG
+  IMG[图片生成与管理 · 按版本生图入池] --> NOTES
+  NOTES[笔记管理 · 组合文案+图稿→草稿] --> WB
+  WB[工作台与发布 · 载入·编辑·预览] --> PUB
+  PUB[Chrome 扩展优先 / 剪贴板降级] --> XHS[creator.xiaohongshu.com 人工发布]
         </pre>
-        <p class="muted"><strong>可跳过配图</strong>：自「选模版+生成文案」可直接进入「工作台与发布」；此时图稿池可为空，走「仅文案 + 官方相册」路径。自「图片生成与管理」入池后，同一页内编辑区与发布设置区才参与相册辅助写入。</p>
+        <p class="muted"><strong>可跳过配图</strong>：步骤 1 后可直接组合「仅文案」草稿或在工作台仅发文案。</p>
       </section>
 
       <section id="edge">

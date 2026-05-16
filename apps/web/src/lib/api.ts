@@ -55,12 +55,15 @@ export async function apiDelete(path: string): Promise<void> {
 export async function apiUploadEntryImage(
   entryId: string,
   file: File,
-  opts?: { sourceCopyVersionId?: string | null },
+  opts?: { sourceCopyVersionId?: string | null; imagePoolId?: string | null },
 ): Promise<DraftImage> {
   const fd = new FormData()
   fd.append('file', file)
   if (opts?.sourceCopyVersionId) {
     fd.append('source_copy_version_id', opts.sourceCopyVersionId)
+  }
+  if (opts?.imagePoolId) {
+    fd.append('image_pool_id', opts.imagePoolId)
   }
   const token = import.meta.env.VITE_API_BEARER_TOKEN || ''
   const headers: Record<string, string> = {}
@@ -78,12 +81,20 @@ export type EntrySummary = { id: string; title: string; updated_at: string }
 
 export type DraftImage = {
   id: string
+  pool_id: string
   sort_order: number
   public_url: string
   is_cover: boolean
   include_in_publish: boolean
   /** PRD §5.3：生图/入池时的文案版本溯源 */
   source_copy_version_id?: string | null
+}
+
+export type DraftImagePool = {
+  id: string
+  name: string
+  sort_order: number
+  image_count: number
 }
 
 export type EntryDetail = {
@@ -94,9 +105,10 @@ export type EntryDetail = {
   topics?: string[]
   updated_at: string
   images: DraftImage[]
+  image_pools?: DraftImagePool[]
   /** 文案生成所选模版（§5.10 / 壳层「选择模版」） */
   selected_template_id?: string | null
-  /** PRD §5.3：图稿池张数上限（与 API 配置一致） */
+  /** PRD §5.3：每组图稿池张数上限（与 API 配置一致） */
   draft_image_pool_limit?: number
 }
 
@@ -137,6 +149,20 @@ export type PublishedNote = {
   metrics_pending: boolean
 }
 
+export type DraftFolderChild = {
+  id: string
+  name: string
+  parent_id: string | null
+  sort_order: number
+}
+
+export type DraftFolderTree = {
+  id: string
+  name: string
+  sort_order: number
+  children: DraftFolderChild[]
+}
+
 export type ComposedDraftRow = {
   id: string
   entry_id: string
@@ -150,6 +176,19 @@ export type ComposedDraftRow = {
   ordered_image_asset_ids: string[]
   cover_asset_id?: string | null
   optional_cover_preview_url: string | null
+  folder_id?: string | null
+  folder_path?: string | null
+}
+
+export type ComposedDraftSnapshotImage = {
+  id: string
+  public_url: string
+  position: number
+}
+
+export type ComposedDraftDetail = ComposedDraftRow & {
+  snapshot_images: ComposedDraftSnapshotImage[]
+  updated_at: string
 }
 
 export type SyncNotesResponse = {

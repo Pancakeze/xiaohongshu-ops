@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.image_pools import ensure_default_pool, ensure_image_pool_has_room, next_image_sort_order, resolve_pool_id
 from app.models import CopyVersion, DraftImage, Entry, GoogleImageAsset, GoogleImageSession, GoogleImageTurn, User
 from app.schemas import (
     GoogleImageSessionCreateOut,
@@ -58,22 +59,26 @@ def _apply_draft_pool_for_assets(
     entry_id: UUID,
     source_copy_version_id: UUID | None,
     assets: list[GoogleImageAsset],
+    *,
+    image_pool_id: UUID | None = None,
 ) -> None:
     if not assets:
         return
     entry = db.scalar(select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id))
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
-    _ensure_draft_pool_has_room(db, entry.id, adding=len(assets))
+    pool_id = resolve_pool_id(db, entry.id, image_pool_id)
+    valid = [a for a in assets if a.public_url]
+    if not valid:
+        return
+    ensure_image_pool_has_room(db, pool_id, adding=len(valid))
     cv_id = _resolve_source_copy_version_id(db, entry.id, source_copy_version_id)
-    max_ord = db.scalar(select(func.max(DraftImage.sort_order)).where(DraftImage.entry_id == entry.id))
-    next_ord = (max_ord + 1) if max_ord is not None else 0
-    for a in assets:
-        if not a.public_url:
-            continue
+    next_ord = next_image_sort_order(db, pool_id)
+    for a in valid:
         db.add(
             DraftImage(
                 entry_id=entry.id,
+                pool_id=pool_id,
                 sort_order=next_ord,
                 public_url=a.public_url,
                 is_cover=False,
@@ -96,24 +101,13 @@ def _public_url_for_generated(local_path: Path) -> str:
     return f"{settings.public_base_url.rstrip('/')}/api/generated/google/{rel_posix}"
 
 
-def _ensure_draft_pool_has_room(db: Session, entry_id: UUID, *, adding: int) -> None:
-    cap = settings.max_draft_images_per_entry
-    n = db.scalar(select(func.count()).select_from(DraftImage).where(DraftImage.entry_id == entry_id))
-    count = int(n or 0)
-    if count + adding > cap:
-        raise HTTPException(status_code=400, detail="draft_image_pool_full")
-
-
 def _resolve_source_copy_version_id(db: Session, entry_id: UUID, requested: UUID | None) -> UUID | None:
-    if requested is not None:
-        ok = db.scalar(select(CopyVersion.id).where(CopyVersion.id == requested, CopyVersion.entry_id == entry_id))
-        if ok is None:
-            raise HTTPException(status_code=400, detail="source_copy_version_mismatch")
-        return requested
-    primary = db.scalar(
-        select(CopyVersion.id).where(CopyVersion.entry_id == entry_id, CopyVersion.is_primary.is_(True))
-    )
-    return primary
+    if requested is None:
+        return None
+    ok = db.scalar(select(CopyVersion.id).where(CopyVersion.id == requested, CopyVersion.entry_id == entry_id))
+    if ok is None:
+        raise HTTPException(status_code=400, detail="source_copy_version_mismatch")
+    return requested
 
 
 @router.post("/sessions", response_model=GoogleImageSessionCreateOut, status_code=status.HTTP_201_CREATED)

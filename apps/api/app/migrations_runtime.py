@@ -318,6 +318,151 @@ def ensure_google_image_schema() -> None:
             conn.execute(text("CREATE INDEX ix_google_image_assets_turn_id ON google_image_assets (turn_id)"))
 
 
+def ensure_draft_image_pools_schema() -> None:
+    """条目内多图稿池分组；draft_images.pool_id。"""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        insp_conn = inspect(conn)
+        tables = set(insp_conn.get_table_names())
+
+        if "draft_image_pools" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE draft_image_pools (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        entry_id UUID NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+                        name VARCHAR(120) NOT NULL DEFAULT '图稿池',
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_draft_image_pools_entry_id ON draft_image_pools (entry_id)"))
+
+        insp_conn = inspect(conn)
+        cols_di = (
+            {c["name"] for c in insp_conn.get_columns("draft_images")}
+            if "draft_images" in insp_conn.get_table_names()
+            else set()
+        )
+        if "draft_images" in insp_conn.get_table_names() and "pool_id" not in cols_di:
+            conn.execute(text("ALTER TABLE draft_images ADD COLUMN pool_id UUID NULL"))
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO draft_image_pools (id, entry_id, name, sort_order)
+                    SELECT gen_random_uuid(), e.id, '默认图稿池', 0
+                    FROM entries e
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM draft_image_pools p WHERE p.entry_id = e.id
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE draft_images di
+                    SET pool_id = (
+                        SELECT p.id FROM draft_image_pools p
+                        WHERE p.entry_id = di.entry_id
+                        ORDER BY p.sort_order ASC, p.created_at ASC
+                        LIMIT 1
+                    )
+                    WHERE di.pool_id IS NULL
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE draft_images
+                    ADD CONSTRAINT fk_draft_images_pool
+                    FOREIGN KEY (pool_id)
+                    REFERENCES draft_image_pools(id)
+                    ON DELETE CASCADE
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_draft_images_pool_id ON draft_images (pool_id)"))
+            conn.execute(text("ALTER TABLE draft_images ALTER COLUMN pool_id SET NOT NULL"))
+
+
+def ensure_draft_folders_schema() -> None:
+    """笔记管理：组合草稿二级分类目录 + composed_drafts.folder_id。"""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        insp_conn = inspect(conn)
+        tables = set(insp_conn.get_table_names())
+        if "draft_folders" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE draft_folders (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        parent_id UUID REFERENCES draft_folders(id) ON DELETE CASCADE,
+                        name VARCHAR(100) NOT NULL,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_draft_folders_owner_id ON draft_folders (owner_id)"))
+            conn.execute(text("CREATE INDEX ix_draft_folders_parent_id ON draft_folders (parent_id)"))
+
+        insp_conn = inspect(conn)
+        cols_cd = (
+            {c["name"] for c in insp_conn.get_columns("composed_drafts")}
+            if "composed_drafts" in insp_conn.get_table_names()
+            else set()
+        )
+        if "composed_drafts" in insp_conn.get_table_names() and "folder_id" not in cols_cd:
+            conn.execute(text("ALTER TABLE composed_drafts ADD COLUMN folder_id UUID NULL"))
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE composed_drafts
+                    ADD CONSTRAINT fk_composed_drafts_folder
+                    FOREIGN KEY (folder_id)
+                    REFERENCES draft_folders(id)
+                    ON DELETE SET NULL
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX ix_composed_drafts_folder_id ON composed_drafts (folder_id)"))
+
+        insp_conn = inspect(conn)
+        cols_cd2 = (
+            {c["name"] for c in insp_conn.get_columns("composed_drafts")}
+            if "composed_drafts" in insp_conn.get_table_names()
+            else set()
+        )
+        if "composed_drafts" in insp_conn.get_table_names():
+            if "snapshot_title" not in cols_cd2:
+                conn.execute(text("ALTER TABLE composed_drafts ADD COLUMN snapshot_title TEXT NULL"))
+            if "snapshot_body" not in cols_cd2:
+                conn.execute(text("ALTER TABLE composed_drafts ADD COLUMN snapshot_body TEXT NULL"))
+            conn.execute(
+                text(
+                    """
+                    UPDATE composed_drafts cd
+                    SET snapshot_title = cv.title,
+                        snapshot_body = COALESCE(cv.body, '')
+                    FROM copy_versions cv
+                    WHERE cd.snapshot_copy_version_id = cv.id
+                      AND cd.snapshot_title IS NULL
+                    """
+                )
+            )
+
+
 def backfill_primary_copy_versions(db: Session) -> None:
     """每条 Entry 至少一条主文案 CopyVersion（is_primary=true）；幂等。"""
     from sqlalchemy import select

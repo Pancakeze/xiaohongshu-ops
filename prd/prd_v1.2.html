@@ -191,7 +191,9 @@
       <a href="#detail-58" class="pl-3 text-[0.8125rem] text-slate-500">5.8 数据总览</a>
       <a href="#detail-59" class="pl-3 text-[0.8125rem] text-slate-500">5.9 笔记库与组合</a>
       <a href="#detail-510" class="pl-3 text-[0.8125rem] text-slate-500">5.10 模版管理</a>
-      <a href="#flow">六、业务流程图</a>
+      <a href="#flow">六、系统使用流程</a>
+      <a href="#flow-steps" class="pl-3 text-[0.8125rem] text-slate-500">6.1 步骤对照</a>
+      <a href="#flow-diagram" class="pl-3 text-[0.8125rem] text-slate-500">6.2 流程图</a>
       <a href="#edge">七、异常与边界</a>
       <a href="#analytics">八、数据追踪与埋点</a>
       <a href="#roadmap">九、未来演进</a>
@@ -281,6 +283,12 @@
               <td>扩展优先</td>
               <td>原型发布按钮优先 <code>chrome.runtime.sendMessage</code> 调扩展 <code>xhs-publish-bridge</code>，失败降级剪贴板；侧栏改回「工作台与发布」；新增实施计划 <code>docs/plan-workbench-publish-first.md</code>。</td>
             </tr>
+            <tr>
+              <td>v1.2.3</td>
+              <td>2026-05-16</td>
+              <td>主流程文档</td>
+              <td>§6 重写为「系统使用流程」：一句话主链路、步骤与页面对照表、Mermaid 流程图、核心对象关系；与 <code>README.md</code>、<code>flowcharts/main-flow.mmd</code> 同步。</td>
+            </tr>
           </tbody>
         </table>
       </section>
@@ -350,7 +358,7 @@
         <ul>
           <li><strong>数据复盘</strong>：在总览查看已发布/本周/优质笔记与 Top5 链接，对比近期表现。</li>
           <li><strong>周中集中生产</strong>：模版 + 竞品生成文案多版本；在「图片生成与管理」据主文案生图并维护图稿池；在「<strong>工作台与发布</strong>」上精修标题、正文与图片条并核对手机预览。</li>
-          <li><strong>资产沉淀</strong>：同步小红书历史笔记与指标入库；将<strong>文案版本 + 所选图稿</strong>组合为新草稿，纳入笔记管理。</li>
+          <li><strong>资产沉淀</strong>：同步小红书历史笔记与指标入库；将<strong>文案版本 + 所选图稿</strong>组合为新草稿，纳入笔记管理；在「草稿 / 组合生成」中按二级分类浏览，对草稿进行<strong>预览、编辑（标题/正文/配图/分类）、删除</strong>，或一键跳转工作台精修发布。</li>
           <li><strong>上线发布</strong>：在工作台底部「发布到小红书」打开发布页并同步文案与配图清单后，在<strong>官方网页</strong>登录完成传图与最终发布。</li>
         </ul>
         <h3>3.3 用户旅程图（User Journey Map）</h3>
@@ -555,23 +563,83 @@
       </section>
 
       <section id="flow">
-        <h2>六、业务流程图</h2>
-        <p class="muted">以下为高阶主流程骨架；异常分支与平台侧细节在原型审查后细化并同步更新本文档。</p>
-        <div class="placeholder">
-          建议使用 Mermaid（如 <code>flowchart TD</code>）在 <code>flowcharts/</code> 中维护可渲染源文件；本版 PRD 内嵌示意如下（若浏览器未加载 Mermaid 渲染库，可直接阅读文字节点逻辑）。
-        </div>
+        <h2>六、系统使用流程与业务流程图</h2>
+        <p><strong>一句话主链路</strong>：模版 + 竞品（可选）→ 生成文案版本 → 按版本生图入池 → 组合成草稿笔记 → 工作台载入、精修、辅助发布。</p>
+        <p class="muted">全流程以<strong>内容条目</strong>为容器：主文案、多版文案（CopyVersion）、图稿池、组合草稿（ComposedDraft 快照）。运营台在会话内维护<strong>当前条目</strong>，文案/生图/组合生成默认作用于该条目，无需在组合弹窗重复选条目。</p>
+
+        <h3 id="flow-steps">6.1 步骤与页面对照</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>步骤</th>
+              <th>用户动作</th>
+              <th>侧栏 / 路由</th>
+              <th>主要产出</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0（可选）</td>
+              <td>新建/启用模版；顶栏「选择模版」绑定条目</td>
+              <td>模版管理</td>
+              <td>模版元数据供生成引用</td>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td>竞品分析（关键词/链接/粘贴，可选）→「重新生成」；管理文案版本、设主版本</td>
+              <td>文案生成与管理 <code>/copy</code></td>
+              <td>文案版本列表；主版本与编辑区同步</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>选择<strong>来源文案版本</strong> → 生图或上传 → 入图稿池（勾选参与发布、封面）</td>
+              <td>图片生成与管理 <code>/images</code></td>
+              <td>带 <code>source_copy_version_id</code> 的图稿</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>选文案版本 + 多选图稿 + 可选二级分类 →「组合生成新笔记」</td>
+              <td>笔记管理 <code>/notes</code>（草稿 / 组合生成）</td>
+              <td>组合草稿（文案+图顺序+封面快照）</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>载入组合草稿或编辑当前条目 → 手机预览 →「发布到小红书」</td>
+              <td>工作台与发布 <code>/workbench</code></td>
+              <td>扩展写入创作页或剪贴板降级；<strong>官方页人工发布</strong></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted">旁路：<strong>总览</strong>（指标看板）；<strong>Google 生图</strong>（聊天式，可勾选入同一图稿池）。<strong>可跳过配图</strong>：步骤 1 后可直接组合「仅文案」草稿或在工作台仅发文案。</p>
+
+        <h3 id="flow-diagram">6.2 业务流程图（Mermaid）</h3>
+        <p class="muted">可维护源文件：<code>flowcharts/main-flow.mmd</code>（与下文内嵌示意一致）。未加载 Mermaid 渲染库时可直接阅读节点文字。</p>
         <pre style="background:#fafbfc;border:1px solid var(--border);padding:0.85rem;border-radius:8px;overflow:auto;font-size:0.8rem;line-height:1.45;">flowchart TD
-  A[打开工具/新建内容条目] --> B[竞品链接或文案粘贴/授权导入]
-  B --> D[选模版+生成文案初稿]
-  D --> IMG[图片生成与管理: 生图入图稿池]
-  IMG --> WB[工作台与发布: 编辑+手机预览]
-  D --> WB
-  WB --> NB[笔记库: 历史同步与组合草稿]
-  NB --> WB
-  WB --> P[发布: Chrome 扩展优先 / 剪贴板降级]
-  P --> M[官方页传图并人工点击发布]
+  TPL[模版管理 · 可选] --> COPY
+  CMP[竞品分析 · 可选] --> COPY
+  COPY[文案生成与管理 · 生成文案版本] --> IMG
+  IMG[图片生成与管理 · 按版本生图入池] --> NOTES
+  NOTES[笔记管理 · 组合文案+图稿→草稿] --> WB
+  WB[工作台与发布 · 载入·编辑·预览] --> PUB
+  PUB[Chrome 扩展优先 / 剪贴板降级] --> XHS[creator.xiaohongshu.com 人工发布]
         </pre>
-        <p class="muted"><strong>可跳过配图</strong>：自「选模版+生成文案」可直接进入「工作台与发布」；此时图稿池可为空。自「图片生成与管理」入池后，编辑区与手机预览展示勾选图稿。</p>
+        <pre style="background:#fafbfc;border:1px solid var(--border);padding:0.85rem;border-radius:8px;overflow:auto;font-size:0.8rem;line-height:1.45;margin-top:0.5rem;">flowchart LR
+  T[模版] --> C[文案]
+  C --> I[生图]
+  I --> N[组合]
+  N --> W[工作台]
+  W --> P[发布]
+  C -.竞品.-> C
+        </pre>
+
+        <h3 id="flow-objects">6.3 核心对象关系</h3>
+        <ul>
+          <li><strong>内容条目 Entry</strong>：一次运营任务容器（标题/正文/话题/图稿池/绑定模版）。</li>
+          <li><strong>文案版本 CopyVersion</strong>：每次生成或保存产生一版；<code>is_primary</code> 标记主版本。</li>
+          <li><strong>图稿 DraftImage</strong>：入池时记录来源文案版本，供组合与发布勾选。</li>
+          <li><strong>组合草稿 ComposedDraft</strong>：不可变快照（<code>snapshot_copy_version_id</code>、图序、封面）；列表以<strong>文案版本标题</strong>展示。</li>
+          <li><strong>草稿分类 DraftFolder</strong>：笔记管理二级目录（如 数学 → 2026年），组合时可归档。</li>
+        </ul>
       </section>
 
       <section id="edge">

@@ -11,10 +11,7 @@ import {
 } from '../lib/api'
 import { CopyCompetitorPanel } from '../components/CopyCompetitorPanel'
 import { persistCurrentEntryId, resolveCurrentEntryId } from '../lib/currentEntry'
-
-function emitEntryUpdated(entryId: string) {
-  window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
-}
+import { formatYmdHm } from '../lib/formatDate'
 
 function sourceLabel(source: string): string {
   if (source === 'generated') return '新生成'
@@ -41,7 +38,6 @@ export function CopyPage() {
   const [benchmarkDraft, setBenchmarkDraft] = useState<{ title: string; body: string } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
-  const [promoting, setPromoting] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedVersionId
@@ -198,7 +194,6 @@ export function CopyPage() {
           })
           const vers = await apiGet<CopyVersion[]>(`/api/entries/${entryId}/copy-versions`)
           setVersions(vers)
-          if (row.is_primary) emitEntryUpdated(entryId)
         } catch (e) {
           showToast(parseApiErr(e))
         }
@@ -209,7 +204,6 @@ export function CopyPage() {
     }
   }, [title, body, entryId, selectedVersionId, versions, showToast])
 
-  const selectedRow = versions.find((v) => v.id === selectedVersionId)
   const templateName = useMemo(() => {
     const tid = entry?.selected_template_id
     if (!tid) return '（未选择模版）'
@@ -244,8 +238,7 @@ export function CopyPage() {
         setTitle(newest.title)
         setBody(newest.body)
       }
-      emitEntryUpdated(entryId)
-      showToast('已生成新文案版本并设为主版本，工作台标题与正文已同步。')
+      showToast('已生成新文案版本并设为主版本。请在「笔记管理」组合草稿后，于工作台载入发布。')
     } catch (e) {
       const d = parseApiErr(e)
       if (d === 'no_template_selected')
@@ -257,24 +250,6 @@ export function CopyPage() {
       else showToast(d)
     } finally {
       setGenerating(false)
-    }
-  }
-
-  const onMakePrimary = async () => {
-    if (!entryId || !selectedVersionId || !selectedRow || selectedRow.is_primary) return
-    setPromoting(true)
-    try {
-      await apiPost<CopyVersion>(
-        `/api/entries/${entryId}/copy-versions/${selectedVersionId}/make-primary`,
-        {},
-      )
-      await reloadAll(entryId)
-      emitEntryUpdated(entryId)
-      showToast('已设为主版本，工作台标题与正文已同步。')
-    } catch (e) {
-      showToast(parseApiErr(e))
-    } finally {
-      setPromoting(false)
     }
   }
 
@@ -348,16 +323,14 @@ export function CopyPage() {
           <div className="rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
             <strong className="text-slate-200">新生成文案在哪里？</strong>
             <br />
-            每次「重新生成」会新增一条<strong>文案版本</strong>（左侧列表）。主文案与「
-            <strong>工作台与发布</strong>」编辑区同源；图片页据主文案生图入图稿池；笔记管理可组合草稿。
+            每次「重新生成」会新增一条<strong>文案版本</strong>（左侧列表）。图片页据<strong>主版本</strong>生图入图稿池；在「笔记管理」将文案与图稿<strong>组合成草稿</strong>后，于「工作台与发布」载入精修与发布。
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-2 text-xs font-medium text-slate-500">文案版本（条目内）</div>
-            <ul className="space-y-1 text-sm">
+            <ul className="max-h-48 space-y-1 overflow-y-auto pr-1 text-sm">
               {versions.map((v) => {
                 const active = v.id === selectedVersionId
-                const t = new Date(v.created_at)
-                const hm = t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                const when = formatYmdHm(v.created_at)
                 return (
                   <li key={v.id}>
                     <button
@@ -369,7 +342,7 @@ export function CopyPage() {
                           : 'text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      v{vNumber(v.id)} · {sourceLabel(v.source)} · {hm}
+                      v{vNumber(v.id)} · {sourceLabel(v.source)} · {when}
                       {v.is_primary ? (
                         <span className="ml-1 text-[10px] text-emerald-600">主</span>
                       ) : null}
@@ -378,16 +351,6 @@ export function CopyPage() {
                 )
               })}
             </ul>
-            {selectedRow && !selectedRow.is_primary ? (
-              <button
-                type="button"
-                disabled={promoting}
-                className="mt-3 w-full rounded-lg border border-brand/40 bg-brand-soft py-2 text-xs font-medium text-brand hover:bg-rose-100 disabled:opacity-50"
-                onClick={() => void onMakePrimary()}
-              >
-                {promoting ? '处理中…' : '设为主版本（同步工作台）'}
-              </button>
-            ) : null}
           </div>
           <div className="rounded-xl border border-red-100 bg-[var(--color-brand-soft)] p-4 text-sm text-slate-700">
             <strong className="text-brand">真人感</strong>：口语化断句、避免「综上所述」等套话；禁用夸张保过承诺。
@@ -434,10 +397,15 @@ export function CopyPage() {
             onChange={(e) => setBody(e.target.value)}
           />
           <p className="mt-2 text-xs text-slate-400">
-            <Link to="/workbench" className="font-medium text-brand hover:underline">
-              去工作台与发布
+            完成文案与配图后，请先在
+            <Link to="/notes" className="font-medium text-brand hover:underline">
+              笔记管理
             </Link>
-            查看手机预览、图稿条与发布流程（主版本与上文同源）。
+            组合生成草稿，再在
+            <Link to="/workbench" className="font-medium text-brand hover:underline">
+              工作台与发布
+            </Link>
+            载入精修与发布。
           </p>
         </div>
       </div>

@@ -15,10 +15,20 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.image_pools import (
+    draft_image_count_in_pool,
+    ensure_default_pool,
+    ensure_image_pool_has_room,
+    get_owned_pool,
+    next_image_sort_order,
+    resolve_pool_id,
+    touch_entry_by_pool,
+)
 from app.models import (
     CompetitorAnalysisSnapshot,
     CopyVersion,
     DraftImage,
+    DraftImagePool,
     Entry,
     PublishAttempt,
     Template,
@@ -33,6 +43,9 @@ from app.schemas import (
     DraftImageCreateIn,
     DraftImageOut,
     DraftImagePatchIn,
+    DraftImagePoolCreateIn,
+    DraftImagePoolOut,
+    DraftImagePoolPatchIn,
     EntryDetailOut,
     EntryPatchIn,
     EntrySummaryOut,
@@ -58,19 +71,54 @@ _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 
-def _draft_image_count(db: Session, entry_id: UUID) -> int:
-    n = db.scalar(select(func.count()).select_from(DraftImage).where(DraftImage.entry_id == entry_id))
-    return int(n or 0)
-
-
-def _ensure_pool_has_room(db: Session, entry_id: UUID, *, adding: int = 1) -> None:
-    cap = settings.max_draft_images_per_entry
-    if _draft_image_count(db, entry_id) + adding > cap:
-        raise HTTPException(status_code=400, detail="draft_image_pool_full")
-
-
 def _touch_entry(entry: Entry) -> None:
     entry.updated_at = datetime.now(timezone.utc)
+
+
+def _load_entry_owned(
+    db: Session,
+    user: User,
+    entry_id: UUID,
+    *,
+    with_images: bool = False,
+    with_pools: bool = False,
+) -> Entry | None:
+    opts = []
+    if with_images:
+        opts.append(selectinload(Entry.images))
+    if with_pools:
+        opts.append(selectinload(Entry.image_pools))
+    q = select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id)
+    if opts:
+        q = q.options(*opts)
+    return db.scalar(q)
+
+
+def _serialize_entry_detail(entry: Entry) -> EntryDetailOut:
+    entry.images.sort(key=lambda i: i.sort_order)
+    pools = sorted(entry.image_pools, key=lambda p: (p.sort_order, p.created_at))
+    counts: dict[UUID, int] = {}
+    for im in entry.images:
+        counts[im.pool_id] = counts.get(im.pool_id, 0) + 1
+    return EntryDetailOut(
+        id=entry.id,
+        title=entry.title,
+        body=entry.body,
+        topics=entry.topics or [],
+        updated_at=entry.updated_at,
+        images=[DraftImageOut.model_validate(i) for i in entry.images],
+        image_pools=[
+            DraftImagePoolOut(
+                id=p.id,
+                name=p.name,
+                sort_order=p.sort_order,
+                image_count=counts.get(p.id, 0),
+            )
+            for p in pools
+        ],
+        selected_template_id=entry.selected_template_id,
+        draft_image_pool_limit=settings.max_draft_images_per_entry,
+    )
 
 
 def _demote_primary_copy_versions(db: Session, entry_id: UUID) -> None:
@@ -183,16 +231,114 @@ def get_entry(
     entry_id: UUID,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Entry:
-    entry = db.scalar(
-        select(Entry)
-        .options(selectinload(Entry.images))
-        .where(Entry.id == entry_id, Entry.owner_id == user.id)
-    )
+) -> EntryDetailOut:
+    entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
-    entry.images.sort(key=lambda i: i.sort_order)
-    return entry
+    if not entry.image_pools:
+        ensure_default_pool(db, entry_id)
+        db.commit()
+        entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
+        assert entry is not None
+    return _serialize_entry_detail(entry)
+
+
+@router.get("/{entry_id}/image-pools", response_model=list[DraftImagePoolOut])
+def list_image_pools(
+    entry_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[DraftImagePoolOut]:
+    entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if not entry.image_pools:
+        ensure_default_pool(db, entry_id)
+        db.commit()
+        entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
+        assert entry is not None
+    detail = _serialize_entry_detail(entry)
+    return detail.image_pools
+
+
+@router.post("/{entry_id}/image-pools", response_model=DraftImagePoolOut, status_code=status.HTTP_201_CREATED)
+def create_image_pool(
+    entry_id: UUID,
+    payload: DraftImagePoolCreateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DraftImagePoolOut:
+    entry = db.scalar(select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id))
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    max_ord = db.scalar(
+        select(func.max(DraftImagePool.sort_order)).where(DraftImagePool.entry_id == entry_id)
+    )
+    next_ord = (max_ord + 1) if max_ord is not None else 0
+    pool = DraftImagePool(entry_id=entry_id, name=payload.name.strip(), sort_order=next_ord)
+    db.add(pool)
+    _touch_entry(entry)
+    db.commit()
+    db.refresh(pool)
+    return DraftImagePoolOut(id=pool.id, name=pool.name, sort_order=pool.sort_order, image_count=0)
+
+
+@router.patch("/{entry_id}/image-pools/{pool_id}", response_model=DraftImagePoolOut)
+def patch_image_pool(
+    entry_id: UUID,
+    pool_id: UUID,
+    payload: DraftImagePoolPatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DraftImagePoolOut:
+    entry = db.scalar(select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id))
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    pool = get_owned_pool(db, entry_id, pool_id)
+    if payload.name is not None:
+        pool.name = payload.name.strip()
+    if payload.sort_order is not None:
+        pool.sort_order = payload.sort_order
+    pool.updated_at = datetime.now(timezone.utc)
+    _touch_entry(entry)
+    db.commit()
+    db.refresh(pool)
+    n = draft_image_count_in_pool(db, pool.id)
+    return DraftImagePoolOut(id=pool.id, name=pool.name, sort_order=pool.sort_order, image_count=n)
+
+
+@router.delete("/{entry_id}/image-pools/{pool_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_image_pool(
+    entry_id: UUID,
+    pool_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    entry = db.scalar(select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id))
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    pool = get_owned_pool(db, entry_id, pool_id)
+    pool_count = db.scalar(
+        select(func.count()).select_from(DraftImagePool).where(DraftImagePool.entry_id == entry_id)
+    )
+    if int(pool_count or 0) <= 1:
+        raise HTTPException(status_code=400, detail="cannot_delete_last_image_pool")
+    images = list(
+        db.scalars(select(DraftImage).where(DraftImage.pool_id == pool_id)).all()
+    )
+    for img in images:
+        if draft_image_referenced_in_composed_snapshots(db, entry_id=entry_id, image_id=img.id):
+            raise HTTPException(status_code=409, detail="image_pool_locked_by_composed_snapshot")
+        if "/api/uploads/" in img.public_url:
+            name = img.public_url.rsplit("/", maxsplit=1)[-1]
+            try:
+                (settings.upload_path / name).unlink(missing_ok=True)
+            except OSError:
+                pass
+    db.delete(pool)
+    _touch_entry(entry)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{entry_id}/copy-versions", response_model=list[CopyVersionOut])
@@ -374,10 +520,8 @@ def patch_entry(
     body: EntryPatchIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Entry:
-    entry = db.scalar(
-        select(Entry).options(selectinload(Entry.images)).where(Entry.id == entry_id, Entry.owner_id == user.id)
-    )
+) -> EntryDetailOut:
+    entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
     if body.title is not None:
@@ -399,9 +543,9 @@ def patch_entry(
     if body.title is not None or body.body is not None:
         _sync_primary_copy_version_from_entry(db, entry)
     db.commit()
-    db.refresh(entry)
-    entry.images.sort(key=lambda i: i.sort_order)
-    return entry
+    entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
+    assert entry is not None
+    return _serialize_entry_detail(entry)
 
 
 @router.post("/{entry_id}/images", response_model=DraftImageOut, status_code=status.HTTP_201_CREATED)
@@ -414,29 +558,32 @@ def add_image(
     entry = db.scalar(select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id))
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
-    _ensure_pool_has_room(db, entry_id, adding=1)
-    if payload.source_copy_version_id is not None:
+    pool_id = resolve_pool_id(db, entry_id, payload.pool_id)
+    ensure_image_pool_has_room(db, pool_id, adding=1)
+    cv_id = payload.source_copy_version_id
+    if cv_id is not None:
         cv_ok = db.scalar(
             select(CopyVersion).where(
-                CopyVersion.id == payload.source_copy_version_id,
+                CopyVersion.id == cv_id,
                 CopyVersion.entry_id == entry_id,
             )
         )
         if cv_ok is None:
             raise HTTPException(status_code=400, detail="source_copy_version_mismatch")
-    max_ord = db.scalar(select(func.max(DraftImage.sort_order)).where(DraftImage.entry_id == entry_id))
-    next_ord = (max_ord + 1) if max_ord is not None else 0
-    sort_order = payload.sort_order if payload.sort_order is not None else next_ord
+    sort_order = (
+        payload.sort_order if payload.sort_order is not None else next_image_sort_order(db, pool_id)
+    )
     if payload.is_cover:
-        for img in db.scalars(select(DraftImage).where(DraftImage.entry_id == entry_id)):
+        for img in db.scalars(select(DraftImage).where(DraftImage.pool_id == pool_id)):
             img.is_cover = False
     img = DraftImage(
         entry_id=entry_id,
+        pool_id=pool_id,
         sort_order=sort_order,
         public_url=payload.public_url,
         is_cover=payload.is_cover,
         include_in_publish=payload.include_in_publish,
-        source_copy_version_id=payload.source_copy_version_id,
+        source_copy_version_id=cv_id,
     )
     db.add(img)
     _touch_entry(entry)
@@ -450,13 +597,13 @@ async def upload_image_file(
     entry_id: UUID,
     file: UploadFile = File(...),
     source_copy_version_id: Optional[UUID] = Form(default=None),
+    image_pool_id: Optional[UUID] = Form(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DraftImage:
     entry = db.scalar(select(Entry).where(Entry.id == entry_id, Entry.owner_id == user.id))
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
-    _ensure_pool_has_room(db, entry_id, adding=1)
     ct = (file.content_type or "").split(";")[0].strip().lower()
     if ct not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=400, detail="invalid_image_mime")
@@ -469,28 +616,23 @@ async def upload_image_file(
     dest.write_bytes(raw)
     public_url = f"{settings.public_base_url.rstrip('/')}/api/uploads/{fname}"
 
-    max_ord = db.scalar(select(func.max(DraftImage.sort_order)).where(DraftImage.entry_id == entry_id))
-    next_ord = (max_ord + 1) if max_ord is not None else 0
-    cv_id = source_copy_version_id
-    if cv_id is not None:
+    pool_id = resolve_pool_id(db, entry_id, image_pool_id)
+    ensure_image_pool_has_room(db, pool_id, adding=1)
+    cv_id: UUID | None = None
+    if source_copy_version_id is not None:
         cv_ok = db.scalar(
             select(CopyVersion).where(
-                CopyVersion.id == cv_id,
+                CopyVersion.id == source_copy_version_id,
                 CopyVersion.entry_id == entry_id,
             )
         )
         if cv_ok is None:
             raise HTTPException(status_code=400, detail="source_copy_version_mismatch")
-    else:
-        cv_id = db.scalar(
-            select(CopyVersion.id).where(
-                CopyVersion.entry_id == entry_id,
-                CopyVersion.is_primary.is_(True),
-            )
-        )
+        cv_id = source_copy_version_id
     img = DraftImage(
         entry_id=entry_id,
-        sort_order=next_ord,
+        pool_id=pool_id,
+        sort_order=next_image_sort_order(db, pool_id),
         public_url=public_url,
         is_cover=False,
         include_in_publish=True,
@@ -523,7 +665,7 @@ def patch_image(
         img.include_in_publish = payload.include_in_publish
     if payload.is_cover is not None:
         if payload.is_cover:
-            for other in db.scalars(select(DraftImage).where(DraftImage.entry_id == entry_id)):
+            for other in db.scalars(select(DraftImage).where(DraftImage.pool_id == img.pool_id)):
                 other.is_cover = other.id == image_id
         else:
             img.is_cover = False
@@ -569,10 +711,8 @@ def reorder_images(
     payload: ImageReorderIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Entry:
-    entry = db.scalar(
-        select(Entry).options(selectinload(Entry.images)).where(Entry.id == entry_id, Entry.owner_id == user.id)
-    )
+) -> EntryDetailOut:
+    entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
     images = {i.id: i for i in entry.images}
@@ -583,9 +723,9 @@ def reorder_images(
         img.sort_order = idx
     _touch_entry(entry)
     db.commit()
-    db.refresh(entry)
-    entry.images.sort(key=lambda i: i.sort_order)
-    return entry
+    entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
+    assert entry is not None
+    return _serialize_entry_detail(entry)
 
 
 @router.post("/{entry_id}/publish-attempts", response_model=PublishAttemptOut)

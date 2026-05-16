@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_copy_model: str = "qwen2.5-coder:14b"
     ollama_timeout_seconds: float = 120.0
-    # PRD §5.3 / 原型：单条目图稿池上限（可配置）
+    # PRD §5.3：条目图稿池上限（各文案版本共用，可配置）
     max_draft_images_per_entry: int = 18
 
     @property
