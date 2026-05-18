@@ -88,6 +88,8 @@ export type DraftImage = {
   include_in_publish: boolean
   /** PRD §5.3：生图/入池时的文案版本溯源 */
   source_copy_version_id?: string | null
+  /** 被笔记管理组合草稿快照引用 */
+  composed_snapshot_locked?: boolean
 }
 
 export type DraftImagePool = {

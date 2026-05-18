@@ -122,7 +122,7 @@ export function tryPingBridgeExtension(
   onDone: (r: { ok: true; version: string } | { ok: false; reason: string }) => void,
 ): void {
   if (!extId) {
-    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
+    onDone({ ok: false, reason: '请先在「工作台」填写并保存发布助手编号' })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
@@ -158,6 +158,21 @@ function isAllowedPublishImageUrl(u: string): boolean {
   )
 }
 
+/** 参与发布的配图 URL：去重、校验、最多 9 张（与扩展一致） */
+export function dedupePublishImageUrls(urls: string[] | undefined): string[] {
+  if (!urls?.length) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of urls) {
+    const u = raw.trim()
+    if (!u || !isAllowedPublishImageUrl(u) || seen.has(u)) continue
+    seen.add(u)
+    out.push(u)
+    if (out.length >= 9) break
+  }
+  return out
+}
+
 /** 传给扩展的可选参数（与 `extensions/xhs-publish-bridge` types 一致） */
 export type ExtensionPublishOptions = {
   /** 首张参与发布图 URL，用于创作平台必须先有图才出现标题/正文 */
@@ -174,7 +189,7 @@ export function tryExtensionPublish(
   options?: ExtensionPublishOptions,
 ): void {
   if (!extId) {
-    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号', response: null })
+    onDone({ ok: false, reason: '请先在「工作台」填写并保存发布助手编号', response: null })
     return
   }
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
@@ -185,13 +200,14 @@ export function tryExtensionPublish(
     title,
     body,
   }
-  const u = options?.firstImageUrl?.trim()
-  if (u && isAllowedPublishImageUrl(u)) {
-    payload.firstImageUrl = u
-  }
-  const imgs = options?.imageUrls?.map((x) => x.trim()).filter((x) => x && isAllowedPublishImageUrl(x))
-  if (imgs?.length) {
+  const imgs = dedupePublishImageUrls(options?.imageUrls)
+  if (imgs.length) {
     payload.imageUrls = imgs
+  } else {
+    const u = options?.firstImageUrl?.trim()
+    if (u && isAllowedPublishImageUrl(u)) {
+      payload.firstImageUrl = u
+    }
   }
 
   const msg = {
@@ -246,7 +262,7 @@ export function tryExtensionScrapeTopNotes(
 ): void {
   const kw = keyword.trim()
   if (!extId) {
-    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
+    onDone({ ok: false, reason: '请先在「工作台」填写并保存发布助手编号' })
     return
   }
   if (!kw) {
@@ -298,7 +314,7 @@ export function tryExtensionScrapeProfileNotes(
 ): void {
   const u = profileUrl.trim()
   if (!extId) {
-    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
+    onDone({ ok: false, reason: '请先在「工作台」填写并保存发布助手编号' })
     return
   }
   if (!u) {
@@ -354,7 +370,7 @@ export function tryExtensionScrapeExploreRelated(
 ): void {
   const u = noteUrl.trim()
   if (!extId) {
-    onDone({ ok: false, reason: '请先在「工作台与发布」填写并保存发布助手编号' })
+    onDone({ ok: false, reason: '请先在「工作台」填写并保存发布助手编号' })
     return
   }
   if (!u) {

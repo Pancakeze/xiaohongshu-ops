@@ -827,7 +827,7 @@ export function NotesPage() {
             </button>
             <h2 className="mb-2 text-lg font-semibold text-slate-900">组合生成新笔记</h2>
             <p className="mb-4 text-xs text-slate-500">
-              选择<strong className="font-medium text-slate-700">文案版本</strong>，并从条目共用图稿池（最多 18 张）勾选配图。生成组合草稿后，在「工作台与发布」载入精修发布。
+              选择<strong className="font-medium text-slate-700">文案版本</strong>，并从条目共用图稿池（最多 18 张）勾选配图。生成组合草稿后，在「工作台」载入精修发布。
             </p>
 
             <div className="space-y-3 text-sm">
@@ -890,7 +890,7 @@ export function NotesPage() {
                 </label>
                 {composePoolImages.length === 0 ? (
                   <p className="text-xs text-slate-400">
-                    暂无图稿，将生成「仅文案」草稿；请先到「图片生成与管理」入池。
+                    暂无图稿，将生成「仅文案」草稿；请先到「图片管理」入池。
                   </p>
                 ) : (
                   <div className="max-h-40 space-y-1 overflow-y-auto text-xs text-slate-600">
@@ -1099,7 +1099,7 @@ export function NotesPage() {
                   <p className="text-xs text-slate-400">加载图稿池…</p>
                 ) : editPoolImages.length === 0 ? (
                   <p className="text-xs text-slate-400">
-                    条目暂无图稿，保存后为「待配图」草稿；请到「图片生成与管理」入池。
+                    条目暂无图稿，保存后为「待配图」草稿；请到「图片管理」入池。
                   </p>
                 ) : (
                   <div className="max-h-36 space-y-1 overflow-y-auto text-xs text-slate-600">

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatYmdHm } from '../lib/formatDate'
 import {
@@ -16,6 +16,45 @@ import {
   type Template,
 } from '../lib/api'
 import { persistCurrentEntryId, resolveCurrentEntryId } from '../lib/currentEntry'
+import { confirmDeleteDraftImage } from '../lib/draftImageDelete'
+import { GoogleImagesPanel } from './GoogleImagesPage'
+
+type ImagesTab = 'pool' | 'google'
+
+function ImagesTabBar({ tab, onChange }: { tab: ImagesTab; onChange: (t: ImagesTab) => void }) {
+  const base =
+    'rounded-lg px-4 py-2 text-sm font-medium transition-colors border'
+  return (
+    <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="图片生成方式">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab === 'pool'}
+        className={`${base} ${
+          tab === 'pool'
+            ? 'border-brand bg-brand-soft text-brand-dark'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+        }`}
+        onClick={() => onChange('pool')}
+      >
+        图稿池
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={tab === 'google'}
+        className={`${base} ${
+          tab === 'google'
+            ? 'border-brand bg-brand-soft text-brand-dark'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+        }`}
+        onClick={() => onChange('google')}
+      >
+        Google 生图（聊天式）
+      </button>
+    </div>
+  )
+}
 
 const MAX_FALLBACK = 18
 
@@ -31,9 +70,9 @@ function parseApiErr(e: unknown): string {
   if (raw.includes('cannot_delete_last_image_pool'))
     return '至少保留一个图稿池，无法删除'
   if (raw.includes('image_pool_locked_by_composed_snapshot'))
-    return '该图稿池内有图稿被组合草稿引用，无法删除'
+    return '删除图稿池失败，请稍后重试'
   if (raw.includes('image_locked_by_composed_snapshot'))
-    return '该图稿被「笔记管理」组合草稿快照引用，无法删除（PRD §5.3）'
+    return '删除图稿失败，请稍后重试'
   const m = raw.match(/\{[\s\S]*"detail"\s*:\s*"([^"]+)"[\s\S]*\}\s*$/)
   if (m) return m[1]
   return raw
@@ -97,6 +136,16 @@ async function placeholderPngFile(versionLabel: string, titleHint: string): Prom
 }
 
 export function ImagesPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: ImagesTab = searchParams.get('tab') === 'google' ? 'google' : 'pool'
+  const setTab = useCallback(
+    (next: ImagesTab) => {
+      if (next === 'google') setSearchParams({ tab: 'google' }, { replace: true })
+      else setSearchParams({}, { replace: true })
+    },
+    [setSearchParams],
+  )
+
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [entryId, setEntryId] = useState<string | null>(null)
   const [entry, setEntry] = useState<EntryDetail | null>(null)
@@ -308,6 +357,7 @@ export function ImagesPage() {
 
   const removeImage = async (img: DraftImage) => {
     if (!entryId) return
+    if (!confirmDeleteDraftImage(img)) return
     try {
       await apiDelete(`/api/entries/${entryId}/images/${img.id}`)
       await reloadAll(entryId)
@@ -362,9 +412,15 @@ export function ImagesPage() {
       showToast('至少保留一个图稿池')
       return
     }
+    const lockedInPool =
+      entry?.images.filter((i) => i.pool_id === pool.id && i.composed_snapshot_locked).length ?? 0
+    const snapNote =
+      lockedInPool > 0
+        ? `\n其中 ${lockedInPool} 张被组合草稿引用，删除后将从相关草稿快照中移除。`
+        : ''
     const msg =
       pool.image_count > 0
-        ? `确定删除「${pool.name}」及其 ${pool.image_count} 张图稿？`
+        ? `确定删除「${pool.name}」及其 ${pool.image_count} 张图稿？${snapNote}`
         : `确定删除「${pool.name}」？`
     if (!window.confirm(msg)) return
     setBusyPool(true)
@@ -433,39 +489,38 @@ export function ImagesPage() {
   }
 
   const addByUrl = async (url: string) => {
-    if (!entryId || !url.trim() || !activePoolId || atCap) return
+    const trimmed = url.trim()
+    if (!trimmed) return
+    if (!entryId) {
+      showToast('请先在「图稿池」标签加载条目')
+      throw new Error('entry_not_loaded')
+    }
+    if (!activePoolId) {
+      showToast('请先在「图稿池」选择或新建图稿池')
+      throw new Error('pool_not_selected')
+    }
+    if (atCap) {
+      showToast(`当前池已满（${poolLimit} 张）`)
+      throw new Error('pool_full')
+    }
     try {
       await apiPost<DraftImage>(`/api/entries/${entryId}/images`, {
-        public_url: url.trim(),
+        public_url: trimmed,
         pool_id: activePoolId,
         include_in_publish: true,
         source_copy_version_id: sourceVersionId ?? undefined,
       })
       await reloadAll(entryId)
       emitEntryUpdated(entryId)
-      showToast('已按 URL 入池')
+      showToast('已入图稿池')
     } catch (e) {
       showToast(parseApiErr(e))
+      throw e
     }
   }
 
-  if (loadErr) {
-    return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-red-100 bg-white p-8 text-slate-800 shadow-sm">
-        <p className="font-medium text-red-600">加载失败</p>
-        <p className="mt-2 text-sm text-slate-600">{loadErr}</p>
-      </div>
-    )
-  }
-
-  if (!entry || !entryId) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-slate-500">加载图片管理…</div>
-    )
-  }
-
-  return (
-    <div className="relative mx-auto max-w-6xl text-slate-900">
+  const pageShellStart = (
+    <>
       {toast && (
         <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg">
           {toast}
@@ -473,15 +528,52 @@ export function ImagesPage() {
       )}
 
       <div className="mb-4 max-w-3xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
-        <strong className="text-slate-200">图片生成与管理</strong>
+        <strong className="text-slate-200">图片管理</strong>
         <br />
-        左侧管理<strong>图稿池分组</strong>（每组最多 {poolLimit} 张）；中栏在生图参数下选择参考文案版本；右侧维护当前池图稿。完成后在「
-        <strong>笔记管理</strong>」组合草稿，于「工作台与发布」载入发布。
+        「图稿池」维护分组与入池（每组最多 {poolLimit} 张）；「Google 生图」在 Gemini 聊天式生成，生成后可手动「入池」。完成后在「
+        <strong>笔记管理</strong>」组合草稿，于「工作台」载入发布。
       </div>
 
+      <ImagesTabBar tab={tab} onChange={setTab} />
+    </>
+  )
+
+  if (loadErr && tab === 'pool') {
+    return (
+      <div className="relative mx-auto max-w-6xl text-slate-900">
+        {pageShellStart}
+        <div className="mx-auto max-w-3xl rounded-xl border border-red-100 bg-white p-8 text-slate-800 shadow-sm">
+          <p className="font-medium text-red-600">加载失败</p>
+          <p className="mt-2 text-sm text-slate-600">{loadErr}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if ((!entry || !entryId) && tab === 'pool') {
+    return (
+      <div className="relative mx-auto max-w-6xl text-slate-900">
+        {pageShellStart}
+        <div className="hidden" aria-hidden>
+          <GoogleImagesPanel onSwitchToPool={() => setTab('pool')} onAddToPool={addByUrl} />
+        </div>
+        <div className="flex min-h-[40vh] items-center justify-center text-slate-500">加载图稿池…</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative mx-auto max-w-6xl text-slate-900">
+      {pageShellStart}
+
+      <div className={tab === 'google' ? undefined : 'hidden'} aria-hidden={tab !== 'google'}>
+        <GoogleImagesPanel onSwitchToPool={() => setTab('pool')} onAddToPool={addByUrl} />
+      </div>
+
+      <div className={tab === 'pool' ? undefined : 'hidden'} aria-hidden={tab !== 'pool'}>
       <div className="mb-4 flex flex-wrap gap-3 text-xs">
         <Link to="/copy" className="text-xs font-medium text-brand hover:underline">
-          文案生成与管理
+          文案管理
         </Link>
         <span className="text-slate-300">·</span>
         <Link to="/notes" className="text-xs font-medium text-brand hover:underline">
@@ -572,7 +664,7 @@ export function ImagesPage() {
             <label className="mb-1 block text-xs font-medium text-slate-600">参考文案版本</label>
             <p className="mb-2 text-[11px] text-slate-500">仅用于生图提示词，不绑定图稿归属。</p>
             {sortedAsc.length === 0 ? (
-              <p className="text-xs text-slate-400">暂无文案版本，请先到「文案生成与管理」创建。</p>
+              <p className="text-xs text-slate-400">暂无文案版本，请先到「文案管理」创建。</p>
             ) : (
               <select
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -718,6 +810,7 @@ export function ImagesPage() {
             )}
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

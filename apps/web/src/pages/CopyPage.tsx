@@ -323,7 +323,7 @@ export function CopyPage() {
           <div className="rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
             <strong className="text-slate-200">新生成文案在哪里？</strong>
             <br />
-            每次「重新生成」会新增一条<strong>文案版本</strong>（左侧列表）。图片页据<strong>主版本</strong>生图入图稿池；在「笔记管理」将文案与图稿<strong>组合成草稿</strong>后，于「工作台与发布」载入精修与发布。
+            每次「重新生成」会新增一条<strong>文案版本</strong>（左侧列表）。图片页据<strong>主版本</strong>生图入图稿池；在「笔记管理」将文案与图稿<strong>组合成草稿</strong>后，于「工作台」载入精修与发布。
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-2 text-xs font-medium text-slate-500">文案版本（条目内）</div>
@@ -403,7 +403,7 @@ export function CopyPage() {
             </Link>
             组合生成草稿，再在
             <Link to="/workbench" className="font-medium text-brand hover:underline">
-              工作台与发布
+              工作台
             </Link>
             载入精修与发布。
           </p>

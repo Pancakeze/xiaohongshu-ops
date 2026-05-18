@@ -199,19 +199,26 @@ async function fillOnTab(
   firstImageUrl?: string,
   imageUrls?: string[]
 ): Promise<FillResult> {
-  const msg = {
-    channel: "XHS_PUBLISH_BRIDGE" as const,
-    action: "FILL_DOM" as const,
-    payload: { title, body, firstImageUrl, imageUrls }
-  };
   const maxAttempts = 10;
   const delayMs = 500;
+  let last: FillResult = { ok: false, detail: "no_content_response" };
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, delayMs));
     else await new Promise((r) => setTimeout(r, 400));
+    const imageUploaded = Boolean(last.filled?.image_upload);
+    const msg = {
+      channel: "XHS_PUBLISH_BRIDGE" as const,
+      action: "FILL_DOM" as const,
+      payload:
+        attempt === 0 || !imageUploaded
+          ? { title, body, firstImageUrl, imageUrls }
+          : { title, body, skipImageUpload: true as const }
+    };
     try {
-      const res = await chrome.tabs.sendMessage(tabId, msg);
-      return (res as FillResult) || { ok: false, detail: "no_content_response" };
+      const res = (await chrome.tabs.sendMessage(tabId, msg)) as FillResult | undefined;
+      last = res || { ok: false, detail: "no_content_response" };
+      if (last.ok) return last;
+      if (imageUploaded) continue;
     } catch (e) {
       const s = String(e);
       const retryable =
@@ -223,7 +230,7 @@ async function fillOnTab(
       }
     }
   }
-  return { ok: false, detail: "fill_retries_exhausted" };
+  return last;
 }
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {

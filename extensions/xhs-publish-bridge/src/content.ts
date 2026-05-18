@@ -633,14 +633,13 @@ async function triggerProgrammaticImageUpload(imageUrls: string[]): Promise<bool
   }
   if (!inputs.length) return false;
 
-  if (blobs.length > 1) {
-    const preferMulti = inputs.find((i) => i.multiple);
-    if (preferMulti && assignMultipleFilesToInput(preferMulti, blobs)) return true;
-    for (const input of inputs) {
-      const accept = (input.getAttribute("accept") || "").toLowerCase();
-      if (accept && !accept.includes("image") && accept !== "") continue;
-      if (assignMultipleFilesToInput(input, blobs)) return true;
-    }
+  /** 创作页相册多为 multiple；单图也走 DataTransfer 多文件 API，避免仅 assignFile 无效 */
+  const preferMulti = inputs.find((i) => i.multiple);
+  if (preferMulti && assignMultipleFilesToInput(preferMulti, blobs)) return true;
+  for (const input of inputs) {
+    const accept = (input.getAttribute("accept") || "").toLowerCase();
+    if (accept && !accept.includes("image") && accept !== "") continue;
+    if (assignMultipleFilesToInput(input, blobs)) return true;
   }
 
   const single = blobs[0];
@@ -655,37 +654,40 @@ async function triggerProgrammaticImageUpload(imageUrls: string[]): Promise<bool
 async function ensureImageTextModeThenFill(
   title: string,
   body: string,
-  imageUrls: string[]
+  imageUrls: string[],
+  options?: { skipImageUpload?: boolean }
 ): Promise<FillResult> {
   /** 与主流程解耦：用户稍后手动点图出编辑区时仍能补写，约 48s 后自行停止 */
   startFillObserver(title, body, 48_000);
 
-  if (!hasPublishFormFields()) {
-    clickUploadImageTextTab();
-    await sleep(1600);
-  }
-
   let imageTriggered = false;
-  for (let attempt = 0; attempt < 5 && !hasPublishFormFields(); attempt++) {
-    if (attempt === 0 && !listImageFileInputs().length) {
-      clickUploadImagePrimaryCta();
-      await sleep(700);
-    }
-    imageTriggered = (await triggerProgrammaticImageUpload(imageUrls)) || imageTriggered;
-    await sleep(3200);
+
+  if (!options?.skipImageUpload) {
     if (!hasPublishFormFields()) {
       clickUploadImageTextTab();
-      await sleep(600);
+      await sleep(1600);
+    }
+    if (!listImageFileInputs().length) {
+      clickUploadImagePrimaryCta();
+      await sleep(900);
+    }
+    /** 小红书相册多为追加：同批 URL 只上传一次，避免重试循环叠图 */
+    imageTriggered = await triggerProgrammaticImageUpload(imageUrls);
+    for (let wait = 0; wait < 12 && !hasPublishFormFields(); wait++) {
+      await sleep(1500);
+      if (!imageTriggered && wait > 0 && wait % 2 === 1) {
+        imageTriggered = await triggerProgrammaticImageUpload(imageUrls);
+      }
+      if (wait % 3 === 2) {
+        clickUploadImageTextTab();
+        await sleep(500);
+      }
     }
   }
 
   let r = fillDom(title, body);
   for (let i = 0; i < 8 && !r.ok; i++) {
     await sleep(900);
-    if (!hasPublishFormFields()) {
-      imageTriggered = (await triggerProgrammaticImageUpload(imageUrls)) || imageTriggered;
-      await sleep(2800);
-    }
     r = fillDom(title, body);
   }
 
@@ -717,14 +719,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       body: string;
       firstImageUrl?: string;
       imageUrls?: string[];
+      skipImageUpload?: boolean;
     };
-    const merged: string[] = [];
-    if (payload.imageUrls?.length) merged.push(...payload.imageUrls);
-    if (payload.firstImageUrl?.trim()) merged.push(payload.firstImageUrl.trim());
+    const merged: string[] = payload.imageUrls?.length
+      ? [...payload.imageUrls]
+      : payload.firstImageUrl?.trim()
+        ? [payload.firstImageUrl.trim()]
+        : [];
     const imageList = dedupeUrls(merged).slice(0, 9);
-    void ensureImageTextModeThenFill(payload.title || "", payload.body || "", imageList).then((r) =>
-      sendResponse(r)
-    );
+    void ensureImageTextModeThenFill(payload.title || "", payload.body || "", imageList, {
+      skipImageUpload: Boolean(payload.skipImageUpload)
+    }).then((r) => sendResponse(r));
     return true;
   }
 

@@ -106,7 +106,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     }
     const extId = getBridgeExtensionId('')
     if (!extId) {
-      setErr('请先在「工作台与发布」填写并保存发布助手编号')
+      setErr('请先在「工作台」填写并保存发布助手编号')
       return
     }
     const scraped = await new Promise<{ keyword: string; items: XhsTopNote[] }>((resolve, reject) => {
@@ -131,7 +131,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     }
     const extId = getBridgeExtensionId('')
     if (!extId) {
-      setErr('请先在「工作台与发布」填写并保存发布助手编号')
+      setErr('请先在「工作台」填写并保存发布助手编号')
       return
     }
     const scraped = await new Promise<{ keyword: string; items: XhsTopNote[] }>((resolve, reject) => {
@@ -156,7 +156,7 @@ export function CopyCompetitorPanel({ entryId, onBenchmarkDraftChange }: Props) 
     }
     const extId = getBridgeExtensionId('')
     if (!extId) {
-      setErr('请先在「工作台与发布」填写并保存发布助手编号')
+      setErr('请先在「工作台」填写并保存发布助手编号')
       return
     }
     const scraped = await new Promise<{ keyword: string; items: XhsTopNote[] }>((resolve, reject) => {

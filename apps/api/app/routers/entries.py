@@ -54,7 +54,10 @@ from app.schemas import (
     PublishAttemptOut,
     XhsTopNoteIn,
 )
-from app.snapshot_refs import draft_image_referenced_in_composed_snapshots
+from app.snapshot_refs import (
+    locked_image_ids_for_entry,
+    unlink_image_from_composed_snapshots,
+)
 
 router = APIRouter(prefix="/entries", tags=["entries"])
 
@@ -94,19 +97,26 @@ def _load_entry_owned(
     return db.scalar(q)
 
 
-def _serialize_entry_detail(entry: Entry) -> EntryDetailOut:
+def _serialize_entry_detail(entry: Entry, db: Session | None = None) -> EntryDetailOut:
     entry.images.sort(key=lambda i: i.sort_order)
     pools = sorted(entry.image_pools, key=lambda p: (p.sort_order, p.created_at))
     counts: dict[UUID, int] = {}
     for im in entry.images:
         counts[im.pool_id] = counts.get(im.pool_id, 0) + 1
+    locked = locked_image_ids_for_entry(db, entry.id) if db is not None else set()
+    images_out = [
+        DraftImageOut.model_validate(i).model_copy(
+            update={"composed_snapshot_locked": i.id in locked},
+        )
+        for i in entry.images
+    ]
     return EntryDetailOut(
         id=entry.id,
         title=entry.title,
         body=entry.body,
         topics=entry.topics or [],
         updated_at=entry.updated_at,
-        images=[DraftImageOut.model_validate(i) for i in entry.images],
+        images=images_out,
         image_pools=[
             DraftImagePoolOut(
                 id=p.id,
@@ -240,7 +250,7 @@ def get_entry(
         db.commit()
         entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
         assert entry is not None
-    return _serialize_entry_detail(entry)
+    return _serialize_entry_detail(entry, db)
 
 
 @router.get("/{entry_id}/image-pools", response_model=list[DraftImagePoolOut])
@@ -257,7 +267,7 @@ def list_image_pools(
         db.commit()
         entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
         assert entry is not None
-    detail = _serialize_entry_detail(entry)
+    detail = _serialize_entry_detail(entry, db)
     return detail.image_pools
 
 
@@ -327,8 +337,7 @@ def delete_image_pool(
         db.scalars(select(DraftImage).where(DraftImage.pool_id == pool_id)).all()
     )
     for img in images:
-        if draft_image_referenced_in_composed_snapshots(db, entry_id=entry_id, image_id=img.id):
-            raise HTTPException(status_code=409, detail="image_pool_locked_by_composed_snapshot")
+        unlink_image_from_composed_snapshots(db, entry_id=entry_id, image_id=img.id)
         if "/api/uploads/" in img.public_url:
             name = img.public_url.rsplit("/", maxsplit=1)[-1]
             try:
@@ -545,7 +554,7 @@ def patch_entry(
     db.commit()
     entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
     assert entry is not None
-    return _serialize_entry_detail(entry)
+    return _serialize_entry_detail(entry, db)
 
 
 @router.post("/{entry_id}/images", response_model=DraftImageOut, status_code=status.HTTP_201_CREATED)
@@ -688,11 +697,7 @@ def delete_image(
     img = db.scalar(select(DraftImage).where(DraftImage.id == image_id, DraftImage.entry_id == entry_id))
     if img is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    if draft_image_referenced_in_composed_snapshots(db, entry_id=entry_id, image_id=image_id):
-        raise HTTPException(
-            status_code=409,
-            detail="image_locked_by_composed_snapshot",
-        )
+    unlink_image_from_composed_snapshots(db, entry_id=entry_id, image_id=image_id)
     if "/api/uploads/" in img.public_url:
         name = img.public_url.rsplit("/", maxsplit=1)[-1]
         try:
@@ -725,7 +730,7 @@ def reorder_images(
     db.commit()
     entry = _load_entry_owned(db, user, entry_id, with_images=True, with_pools=True)
     assert entry is not None
-    return _serialize_entry_detail(entry)
+    return _serialize_entry_detail(entry, db)
 
 
 @router.post("/{entry_id}/publish-attempts", response_model=PublishAttemptOut)

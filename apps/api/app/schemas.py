@@ -31,6 +31,7 @@ class DraftImageOut(BaseModel):
     is_cover: bool
     include_in_publish: bool
     source_copy_version_id: Optional[UUID] = None
+    composed_snapshot_locked: bool = False  # 组合草稿快照引用中
 
 
 class EntrySummaryOut(BaseModel):

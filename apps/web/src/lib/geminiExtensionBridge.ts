@@ -15,9 +15,6 @@ export function tryGeminiExtensionRun(
     prompt: string
     sessionId: string
     params?: Record<string, unknown>
-    writeToDraftPool?: boolean
-    entryId?: string | null
-    sourceCopyVersionId?: string | null
   },
   onDone: (r: GeminiExtensionRunResult) => void,
 ): void {
@@ -41,9 +38,9 @@ export function tryGeminiExtensionRun(
       sessionId: payload.sessionId,
       apiBaseUrl: base,
       bearerToken: token,
-      writeToDraftPool: payload.writeToDraftPool ?? false,
-      entryId: payload.entryId ?? null,
-      sourceCopyVersionId: payload.sourceCopyVersionId ?? null,
+      writeToDraftPool: false,
+      entryId: null,
+      sourceCopyVersionId: null,
       params: payload.params ?? {},
     },
   }

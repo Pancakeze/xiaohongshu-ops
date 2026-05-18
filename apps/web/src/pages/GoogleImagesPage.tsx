@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   apiCreateGoogleImageSession,
   apiGetGoogleImageSession,
   type GoogleImageSession,
   type GoogleImageTurn,
 } from '../lib/api'
-import { resolveCurrentEntryId } from '../lib/currentEntry'
+import { PublishAssistantCollapsible } from '../components/PublishAssistantCollapsible'
 import { tryGeminiExtensionRun } from '../lib/geminiExtensionBridge'
 import { getBridgeExtensionId, persistBridgeExtensionId } from '../lib/publishBridge'
 
@@ -14,6 +13,9 @@ type LocalSessionRef = { id: string; createdAt: string; label?: string }
 
 const LS_KEY = 'xhs:google_image_sessions:v1'
 const LS_LAST = 'xhs:google_image_sessions:last'
+const LS_LAST_SUBMIT = 'xhs:google_image_last_submit:v1'
+
+type LastSubmitPayload = { prompt: string; params: Record<string, unknown> }
 
 function parseApiErr(e: unknown): string {
   if (!(e instanceof Error)) return String(e)
@@ -96,7 +98,65 @@ function assetsCount(turn: GoogleImageTurn): number {
   return (turn.assets || []).filter((a) => a.public_url).length
 }
 
-export function GoogleImagesPage() {
+function lastSubmitFromSession(session: GoogleImageSession | null): LastSubmitPayload | null {
+  const turns = session?.turns ?? []
+  if (!turns.length) return null
+  const latest = [...turns].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  )[0]
+  const prompt = latest?.prompt?.trim()
+  if (!prompt) return null
+  const params =
+    latest.params && typeof latest.params === 'object' && !Array.isArray(latest.params)
+      ? (latest.params as Record<string, unknown>)
+      : {}
+  return { prompt, params }
+}
+
+function persistLastSubmit(sessionId: string, payload: LastSubmitPayload) {
+  try {
+    const raw = localStorage.getItem(LS_LAST_SUBMIT)
+    let map: Record<string, LastSubmitPayload> = {}
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        map = parsed as Record<string, LastSubmitPayload>
+      }
+    }
+    map[sessionId] = payload
+    localStorage.setItem(LS_LAST_SUBMIT, JSON.stringify(map))
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadLastSubmit(sessionId: string): LastSubmitPayload | null {
+  try {
+    const raw = localStorage.getItem(LS_LAST_SUBMIT)
+    if (!raw) return null
+    const map = JSON.parse(raw) as Record<string, LastSubmitPayload>
+    const v = map[sessionId]
+    if (!v?.prompt?.trim()) return null
+    return {
+      prompt: v.prompt.trim(),
+      params:
+        v.params && typeof v.params === 'object' && !Array.isArray(v.params)
+          ? (v.params as Record<string, unknown>)
+          : {},
+    }
+  } catch {
+    return null
+  }
+}
+
+export function GoogleImagesPanel({
+  onSwitchToPool,
+  onAddToPool,
+}: {
+  onSwitchToPool?: () => void
+  /** 由「图稿池」标签提供：将生成图 URL 写入当前激活池 */
+  onAddToPool?: (publicUrl: string) => Promise<void>
+}) {
   const [sessions, setSessions] = useState<LocalSessionRef[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [session, setSession] = useState<GoogleImageSession | null>(null)
@@ -109,8 +169,7 @@ export function GoogleImagesPage() {
   const [selectedAssetUrl, setSelectedAssetUrl] = useState<string | null>(null)
   const [lastSubmitted, setLastSubmitted] = useState<{ prompt: string; params: Record<string, unknown> } | null>(null)
   const [extIdInput, setExtIdInput] = useState(() => getBridgeExtensionId(''))
-  const [writeToDraftPool, setWriteToDraftPool] = useState(false)
-  const [entryIdForPool, setEntryIdForPool] = useState<string | null>(null)
+  const [addingUrl, setAddingUrl] = useState<string | null>(null)
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
@@ -126,9 +185,19 @@ export function GoogleImagesPage() {
     return [...turns].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   }, [session])
 
+  const retryPayload = useMemo((): LastSubmitPayload | null => {
+    if (lastSubmitted) return lastSubmitted
+    return lastSubmitFromSession(session) ?? (sessionId ? loadLastSubmit(sessionId) : null)
+  }, [lastSubmitted, session, sessionId])
+
   const reloadSession = useCallback(async (id: string) => {
     const s = await apiGetGoogleImageSession(id)
     setSession(s)
+    const fromHistory = lastSubmitFromSession(s)
+    const cached = loadLastSubmit(id)
+    const payload = fromHistory ?? cached
+    setLastSubmitted(payload)
+    if (payload) persistLastSubmit(id, payload)
     const newestAsset =
       [...(s.turns || [])]
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -144,10 +213,6 @@ export function GoogleImagesPage() {
     const last = loadLastSessionId()
     const pick = last && list.some((s) => s.id === last) ? last : list[0]?.id ?? null
     setSessionId(pick)
-  }, [])
-
-  useEffect(() => {
-    void resolveCurrentEntryId().then(setEntryIdForPool)
   }, [])
 
   useEffect(() => {
@@ -216,22 +281,17 @@ export function GoogleImagesPage() {
       }
     }
 
-    if (writeToDraftPool && !entryIdForPool) {
-      showToast('已勾选入图稿池，但未解析到当前条目：请先到「图片生成与管理」或工作台选中条目')
-      return
-    }
-
     setBusy(true)
     setLoadErr(null)
-    setLastSubmitted({ prompt: p, params })
+    const submitPayload: LastSubmitPayload = { prompt: p, params }
+    setLastSubmitted(submitPayload)
+    persistLastSubmit(sessionId, submitPayload)
     tryGeminiExtensionRun(
       extIdInput,
       {
         prompt: p,
         sessionId,
         params,
-        writeToDraftPool: writeToDraftPool && !!entryIdForPool,
-        entryId: entryIdForPool,
       },
       async (r) => {
         setBusy(false)
@@ -250,11 +310,11 @@ export function GoogleImagesPage() {
   }
 
   const retryLast = () => {
-    if (!lastSubmitted) {
-      showToast('暂无可重试的请求')
+    if (!retryPayload) {
+      showToast('暂无可重试的请求（需至少发送过一次，或会话中有生成记录）')
       return
     }
-    void submitViaExtension({ prompt: lastSubmitted.prompt, params: lastSubmitted.params })
+    void submitViaExtension({ prompt: retryPayload.prompt, params: retryPayload.params })
   }
 
   const pinSessionLabel = (text: string) => {
@@ -262,6 +322,22 @@ export function GoogleImagesPage() {
     const next = sessions.map((s) => (s.id === sessionId ? { ...s, label: text } : s))
     setSessions(next)
     persistLocalSessions(next)
+  }
+
+  const addAssetToPool = async (publicUrl: string) => {
+    if (!onAddToPool) {
+      showToast('请切换到「图稿池」标签后再入池')
+      onSwitchToPool?.()
+      return
+    }
+    setAddingUrl(publicUrl)
+    try {
+      await onAddToPool(publicUrl)
+    } catch {
+      /* 父页已 toast */
+    } finally {
+      setAddingUrl(null)
+    }
   }
 
   if (loadErr && !session) {
@@ -284,9 +360,15 @@ export function GoogleImagesPage() {
           >
             新建会话
           </button>
-          <Link to="/images" className="self-center text-sm font-medium text-brand hover:underline">
-            去「图片生成与管理」
-          </Link>
+          {onSwitchToPool ? (
+            <button
+              type="button"
+              className="self-center text-sm font-medium text-brand hover:underline"
+              onClick={onSwitchToPool}
+            >
+              切换到「图稿池」
+            </button>
+          ) : null}
         </div>
       </div>
     )
@@ -300,21 +382,9 @@ export function GoogleImagesPage() {
         </div>
       )}
 
-      <div className="mb-4 max-w-4xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
-        <strong className="text-slate-200">Google 生图（聊天式）</strong>
-        <br />
-        在已登录的 Gemini 页面中自动填写指令并提交；结果会回到本页历史。请在工作台填写<strong className="text-slate-100">发布助手编号</strong>
-        （与发布小红书为同一助手）。
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <Link to="/images" className="text-xs font-medium text-brand hover:underline">
-          去「图片生成与管理」
-        </Link>
-        <Link to="/workbench" className="text-xs font-medium text-brand hover:underline">
-          去工作台与发布
-        </Link>
-      </div>
+      <p className="mb-4 max-w-4xl text-xs leading-relaxed text-slate-500">
+        在已登录的 Gemini 页面中自动填写指令并提交；结果会回到下方历史。首次使用请展开下方「发布助手」填写编号（与工作台相同）。
+      </p>
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -401,7 +471,8 @@ export function GoogleImagesPage() {
                 type="button"
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 onClick={retryLast}
-                disabled={!sessionId || busy || !lastSubmitted}
+                disabled={!sessionId || busy || !retryPayload}
+                title={retryPayload ? '使用上一次的指令与参数再次发送' : '发送成功后会记录，或从会话历史中恢复'}
               >
                 重试上次
               </button>
@@ -457,24 +528,11 @@ export function GoogleImagesPage() {
               </div>
             </div>
 
-            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-medium text-slate-800">图稿池与发布助手</p>
-              <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={writeToDraftPool}
-                  onChange={(e) => setWriteToDraftPool(e.target.checked)}
-                  disabled={busy}
-                />
-                生成成功后写入当前条目的图稿池（与「图片生成与管理」同源）
-              </label>
-              <p className="mt-1 text-[11px] text-slate-500">
-                当前条目：
-                <span className="font-mono text-slate-700">
-                  {entryIdForPool ?? '（未绑定：请从工作台或「图片生成与管理」进入后再试）'}
-                </span>
-              </p>
-              <label className="mt-3 block text-xs text-slate-500">
+            <PublishAssistantCollapsible
+              className="mt-4"
+              hint="生成结果保存在会话历史中；需要入图稿池时，在下方缩略图点击「入池」（使用「图稿池」标签中的当前池）。"
+            >
+              <label className="block text-xs text-slate-500">
                 发布助手编号（与工作台相同）
                 <input
                   type="text"
@@ -486,7 +544,7 @@ export function GoogleImagesPage() {
                   disabled={busy}
                 />
               </label>
-            </div>
+            </PublishAssistantCollapsible>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
@@ -540,23 +598,42 @@ export function GoogleImagesPage() {
                         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                           {t.assets
                             .filter((a) => a.public_url)
-                            .map((a) => (
-                              <button
-                                key={a.id}
-                                type="button"
-                                className={`relative aspect-square overflow-hidden rounded-lg border ${
-                                  selectedAssetUrl === a.public_url ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'
-                                } bg-white`}
-                                onClick={() => setSelectedAssetUrl(a.public_url ?? null)}
-                              >
-                                <img src={a.public_url ?? ''} alt="" className="h-full w-full object-cover" />
-                                {(a.width || a.height) && (
-                                  <span className="absolute bottom-1 left-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-white">
-                                    {a.width ?? '?'}×{a.height ?? '?'}
-                                  </span>
-                                )}
-                              </button>
-                            ))}
+                            .map((a) => {
+                              const url = a.public_url as string
+                              const adding = addingUrl === url
+                              return (
+                                <div
+                                  key={a.id}
+                                  className={`group relative aspect-square overflow-hidden rounded-lg border ${
+                                    selectedAssetUrl === url ? 'border-brand ring-1 ring-brand/30' : 'border-slate-200'
+                                  } bg-white`}
+                                >
+                                  <button
+                                    type="button"
+                                    className="h-full w-full"
+                                    onClick={() => setSelectedAssetUrl(url)}
+                                  >
+                                    <img src={url} alt="" className="h-full w-full object-cover" />
+                                    {(a.width || a.height) && (
+                                      <span className="absolute bottom-1 left-1 rounded bg-slate-900/70 px-1.5 py-0.5 text-[10px] text-white">
+                                        {a.width ?? '?'}×{a.height ?? '?'}
+                                      </span>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={adding || busy}
+                                    className="absolute right-1 top-1 rounded bg-white/95 px-1.5 py-0.5 text-[10px] font-medium text-brand shadow-sm hover:bg-white disabled:opacity-50"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      void addAssetToPool(url)
+                                    }}
+                                  >
+                                    {adding ? '入池中…' : '入池'}
+                                  </button>
+                                </div>
+                              )
+                            })}
                         </div>
                       ) : (
                         <p className="mt-2 text-xs text-slate-400">本条暂无图片。</p>
@@ -582,7 +659,7 @@ export function GoogleImagesPage() {
                 )}
               </div>
               {selectedAssetUrl ? (
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <a
                     href={selectedAssetUrl}
                     target="_blank"
@@ -591,6 +668,14 @@ export function GoogleImagesPage() {
                   >
                     新标签打开原图
                   </a>
+                  <button
+                    type="button"
+                    disabled={addingUrl === selectedAssetUrl || busy}
+                    className="inline-flex rounded-lg border border-brand bg-brand-soft px-3 py-2 text-xs font-medium text-brand hover:bg-rose-100 disabled:opacity-50"
+                    onClick={() => void addAssetToPool(selectedAssetUrl)}
+                  >
+                    {addingUrl === selectedAssetUrl ? '入池中…' : '入图稿池'}
+                  </button>
                 </div>
               ) : null}
             </div>

@@ -137,13 +137,13 @@ export function DashPage() {
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="mb-3 font-semibold text-slate-900">建议动线</h2>
         <ol className="list-inside list-decimal space-y-2 text-sm text-slate-600">
-          <li>「文案生成与管理」：选模版 + 竞品链接或粘贴文案 → 生成并版本管理</li>
-          <li>「图片生成与管理」：结合当前主文案 AI 生图，维护图稿池并与「工作台与发布」联动</li>
+          <li>「文案管理」：选模版 + 竞品链接或粘贴文案 → 生成并版本管理</li>
+          <li>「图片管理」：图稿池入池；Google 聊天式生图后手动入池，并与「工作台」联动</li>
           <li>
             「笔记管理」：同步历史笔记；将文案与所选图稿<strong>组合</strong>为新草稿
           </li>
           <li>
-            「模版管理」+「<strong>工作台与发布</strong>」精修 → 手机预览
+            「模版管理」+「<strong>工作台</strong>」精修 → 手机预览
           </li>
         </ol>
       </div>

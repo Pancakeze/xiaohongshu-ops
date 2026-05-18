@@ -20,7 +20,10 @@ import {
   resolveCurrentEntryId,
   XHS_PENDING_LOAD_COMPOSED_DRAFT,
 } from '../lib/currentEntry'
+import { PublishAssistantCollapsible } from '../components/PublishAssistantCollapsible'
+import { confirmDeleteDraftImage } from '../lib/draftImageDelete'
 import {
+  dedupePublishImageUrls,
   formatBodyForXhsPublish,
   getBridgeExtensionId,
   parseTopicsInput,
@@ -107,6 +110,8 @@ export function WorkbenchPage() {
   const [noteImportLoading, setNoteImportLoading] = useState(false)
   const [noteImportBusy, setNoteImportBusy] = useState(false)
   const [noteImportOptions, setNoteImportOptions] = useState<NoteImportOpt[]>([])
+  /** 载入组合草稿后仅展示该草稿配图（按草稿顺序） */
+  const [composedDraftImageIds, setComposedDraftImageIds] = useState<string[] | null>(null)
   const [copyVersions, setCopyVersions] = useState<CopyVersion[]>([])
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const localFileInputRef = useRef<HTMLInputElement>(null)
@@ -235,6 +240,10 @@ export function WorkbenchPage() {
   }, [entryId])
 
   useEffect(() => {
+    setComposedDraftImageIds(null)
+  }, [entryId])
+
+  useEffect(() => {
     if (!entryId) return
     const onUpdated = (ev: Event) => {
       const e = ev as CustomEvent<{ entryId?: string }>
@@ -338,13 +347,14 @@ export function WorkbenchPage() {
       setEntry(next)
       setTitle(next.title)
       setBody(next.body)
+      setComposedDraftImageIds(sel.orderedImageIds)
       window.dispatchEvent(
         new CustomEvent('xhs:entry-updated', { detail: { entryId } }),
       )
       showToast(
         dirty
-          ? '已载入组合草稿：标题与正文已覆盖；配图参与发布、顺序与封面已按草稿同步（其余图仍保留在池中）。'
-          : '已载入组合草稿：标题、正文与配图发布设置已同步。',
+          ? '已载入组合草稿：标题与正文已覆盖；仅显示并发布该草稿中的配图。'
+          : '已载入组合草稿：标题、正文与配图已同步，仅显示该草稿中的图片。',
       )
     } catch (e) {
       showToast(e instanceof Error ? e.message : '载入失败')
@@ -394,6 +404,14 @@ export function WorkbenchPage() {
     if (!entry?.images) return []
     return [...entry.images].sort((a, b) => a.sort_order - b.sort_order)
   }, [entry])
+
+  const displayImages = useMemo(() => {
+    if (composedDraftImageIds === null) return sortedImages
+    const order = new Map(composedDraftImageIds.map((id, i) => [id, i]))
+    return sortedImages
+      .filter((im) => order.has(im.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  }, [sortedImages, composedDraftImageIds])
 
   const poolLimit = entry?.draft_image_pool_limit ?? 18
 
@@ -447,12 +465,12 @@ export function WorkbenchPage() {
     const extId = getBridgeExtensionId(extIdInput)
     const topicList = parseTopicsInput(topicsInput)
     const publishBody = formatBodyForXhsPublish(body, topicList)
-    const firstImageUrl =
-      publishImages.find((p) => p.star)?.url || publishImages[0]?.url
-    const imageUrls = [...publishImages]
-      .sort((a, b) => Number(b.star) - Number(a.star))
-      .map((p) => p.url)
-      .filter(Boolean)
+    const imageUrls = dedupePublishImageUrls(
+      [...publishImages]
+        .sort((a, b) => Number(b.star) - Number(a.star))
+        .map((p) => p.url),
+    )
+    const firstImageUrl = imageUrls[0]
     tryExtensionPublish(extId, title, publishBody, (r) => {
       if (r.ok) {
         logPublishAttempt({
@@ -473,6 +491,8 @@ export function WorkbenchPage() {
               filled: filled || null,
               detail: detail || null,
               tabId: typeof resp?.tabId === 'number' ? resp.tabId : null,
+              imageUrlCount: imageUrls.length,
+              imageUrls,
               at: new Date().toISOString(),
             },
             null,
@@ -516,7 +536,7 @@ export function WorkbenchPage() {
         showToast,
         topicList,
       )
-    }, { firstImageUrl, imageUrls: imageUrls.length ? imageUrls : undefined })
+    }, { firstImageUrl, imageUrls })
   }
 
   const saveExtId = () => {
@@ -550,6 +570,7 @@ export function WorkbenchPage() {
         ...(primaryId ? { source_copy_version_id: primaryId } : {}),
       })
       setNewUrl('')
+      setComposedDraftImageIds(null)
       await reloadEntry(entryId)
       window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
       showToast('已添加配图')
@@ -586,6 +607,7 @@ export function WorkbenchPage() {
         n += 1
       }
       if (n) {
+        setComposedDraftImageIds(null)
         await reloadEntry(entryId)
         window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
         showToast(`已上传 ${n} 张本地图片`)
@@ -626,6 +648,7 @@ export function WorkbenchPage() {
 
   const removeImage = async (img: DraftImage) => {
     if (!entryId) return
+    if (!confirmDeleteDraftImage(img)) return
     try {
       await apiDelete(`/api/entries/${entryId}/images/${img.id}`)
       await reloadEntry(entryId)
@@ -663,7 +686,7 @@ export function WorkbenchPage() {
       )}
 
       <div className="mb-4 max-w-4xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
-        <strong className="text-slate-200">工作台与发布</strong>
+        <strong className="text-slate-200">工作台</strong>
         <br />
         左侧编辑正文与图稿，右侧为手机预览；底部「发布到小红书」会优先通过已安装的<strong className="text-slate-100">发布助手</strong>
         尝试把内容写入创作页，失败时改为打开创作页并把标题、正文与配图清单放到剪贴板。
@@ -723,7 +746,7 @@ export function WorkbenchPage() {
                 </div>
               </div>
               <p className="text-xs text-slate-400">
-                仅支持载入「笔记管理」中的组合草稿；标题、正文与配图发布设置将按草稿快照同步。文案版本与已发布历史不会直接写入工作台。
+                载入后工作台仅显示该草稿中的配图；其余图稿仍在「图片管理」图稿池中。文案版本与已发布历史不会直接写入工作台。
               </p>
             </div>
 
@@ -732,11 +755,21 @@ export function WorkbenchPage() {
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-800">图片编辑</span>
                 <span className="text-xs text-slate-500">
-                  {sortedImages.filter((i) => i.include_in_publish).length}/{poolLimit} · 参与发布
+                  {displayImages.length}/{poolLimit} ·{' '}
+                  {composedDraftImageIds !== null ? '草稿配图' : '参与发布'}
                 </span>
               </div>
+              {composedDraftImageIds !== null ? (
+                <button
+                  type="button"
+                  className="mb-2 text-xs font-medium text-brand hover:underline"
+                  onClick={() => setComposedDraftImageIds(null)}
+                >
+                  显示全部图稿池
+                </button>
+              ) : null}
               <div className="flex min-h-[5.5rem] flex-wrap items-center gap-2">
-                {sortedImages.map((img) => (
+                {displayImages.map((img) => (
                   <div key={img.id} className="group relative">
                     <button
                       type="button"
@@ -776,9 +809,11 @@ export function WorkbenchPage() {
                     </div>
                   </div>
                 ))}
-                {sortedImages.length === 0 && (
+                {displayImages.length === 0 && (
                   <span className="text-xs text-slate-400">
-                    可选本地图片上传，或填写下方 HTTPS 图片地址，或去生图页维护图稿池
+                    {composedDraftImageIds !== null
+                      ? '该草稿暂无配图，可在「图片管理」维护后重新载入'
+                      : '可选本地图片上传，或填写下方 HTTPS 图片地址，或去「图片管理」维护图稿池'}
                   </span>
                 )}
               </div>
@@ -814,7 +849,7 @@ export function WorkbenchPage() {
                   添加 URL
                 </button>
                 <Link to="/images" className="text-xs font-medium text-brand hover:underline">
-                  去「图片生成与管理」生图
+                  去「图片管理」生图
                 </Link>
               </div>
             </div>
@@ -945,7 +980,9 @@ export function WorkbenchPage() {
               </button>
             </div>
             <p className="mt-2 text-[0.7rem] leading-relaxed text-slate-400">
-              若已填写下方<strong>发布助手编号</strong>并已安装助手：将尝试在创作页直接填入标题与正文；否则会打开创作页并把标题、正文与配图清单写入<strong>剪贴板</strong>。
+              若已填写下方<strong>发布助手编号</strong>并已安装助手：将尝试在创作页直接填入标题与正文，并上传左侧标记为「参与发布」的{' '}
+              <strong>{publishImages.length}</strong> 张图（最多 9 张）；否则会打开创作页并把标题、正文与配图清单写入
+              <strong>剪贴板</strong>。
             </p>
             {showPublishDebug ? (
               <details className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[0.7rem] text-slate-600">
@@ -995,7 +1032,10 @@ export function WorkbenchPage() {
                 </pre>
               </details>
             ) : null}
-            <div className="mt-3 border-t border-slate-200/90 pt-3">
+            <PublishAssistantCollapsible
+              className="mt-3"
+              hint="创作页控制台里偶发的助手相关报错，多数来自小红书站点自身，不必紧张；是否连通请以「检测发布助手」或点击发布后的提示为准。"
+            >
               <label htmlFor="xhs-bridge-ext-id" className="mb-1 block text-xs text-slate-500">
                 发布助手编号（可选，用于自动填入创作页）
               </label>
@@ -1024,10 +1064,7 @@ export function WorkbenchPage() {
                   检测发布助手
                 </button>
               </div>
-              <p className="mt-1.5 text-[0.65rem] leading-relaxed text-slate-400">
-                创作页控制台里偶发的助手相关报错，多数来自小红书站点自身，不必紧张；是否连通请以本页「检测发布助手」或点击发布后的提示为准。
-              </p>
-            </div>
+            </PublishAssistantCollapsible>
           </div>
         </div>
 

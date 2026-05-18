@@ -116,7 +116,7 @@ export function TemplatesPage() {
       <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <p className="text-xs text-slate-500">
-            用于「文案生成与管理」的模版来源；支持启用/停用与版本备注。
+            用于「文案管理」的模版来源；支持启用/停用与版本备注。
           </p>
         </div>
         <button

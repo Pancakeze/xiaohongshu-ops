@@ -4,13 +4,12 @@ import { apiGet, apiPatch, type EntryDetail, type Template } from '../lib/api'
 import { resolveCurrentEntryId } from '../lib/currentEntry'
 
 const ROUTE_TITLES: Record<string, string> = {
-  '/workbench': '工作台与发布',
   '/dash': '总览',
-  '/copy': '文案生成与管理',
-  '/images': '图片生成与管理',
-  '/google-images': 'Google 生图（聊天式）',
+  '/copy': '文案管理',
+  '/images': '图片管理',
   '/templates': '模版管理',
   '/notes': '笔记管理',
+  '/workbench': '工作台',
 }
 
 function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
@@ -161,15 +160,14 @@ export function AppShell() {
         </div>
         <nav className="flex-1 space-y-0.5 p-2" id="nav">
           <NavItem to="/dash">总览</NavItem>
-          <NavItem to="/copy">文案生成与管理</NavItem>
-          <NavItem to="/images">图片生成与管理</NavItem>
-          <NavItem to="/google-images">Google 生图（聊天式）</NavItem>
+          <NavItem to="/copy">文案管理</NavItem>
+          <NavItem to="/images">图片管理</NavItem>
           <NavItem to="/templates">模版管理</NavItem>
           <NavItem to="/notes">笔记管理</NavItem>
-          <NavItem to="/workbench">工作台与发布</NavItem>
+          <NavItem to="/workbench">工作台</NavItem>
         </nav>
         <div className="border-t border-slate-100 p-3 text-xs leading-relaxed text-slate-400">
-          v1.2：<strong className="text-slate-600">工作台与发布</strong>（<code className="text-slate-500">/workbench</code>
+          v1.2：<strong className="text-slate-600">工作台</strong>（<code className="text-slate-500">/workbench</code>
           ）。不含合规扫描、素材归档、自动发布（协作未实现）
         </div>
       </aside>

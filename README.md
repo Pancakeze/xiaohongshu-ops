@@ -166,4 +166,4 @@ npm run build
 
 ## 相关链接
 
-- 示例远程仓库：<https://github.com/Pancakeze/xiaohongshu>（请替换为你实际使用的 GitHub / GitLab 地址。）
+- 远程仓库：<https://github.com/Pancakeze/xiaohongshu-ops>
