@@ -22,6 +22,13 @@ import {
   scheduleWorkbenchLoadComposedDraft,
 } from '../lib/currentEntry'
 import { formatYmdHm } from '../lib/formatDate'
+import {
+  getBridgeExtensionId,
+  tryExtensionScrapeCreatorPublished,
+  tryExtensionScrapeCreatorNoteLinks,
+  type CreatorPublishedScrapeRow,
+  type ExtensionScrapeCreatorPublishedResult,
+} from '../lib/publishBridge'
 
 type NotesTab = 'hist' | 'draft'
 /** all=全部；uncategorized=未分类；否则为二级目录 id */
@@ -41,6 +48,102 @@ function fmtSigned(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—'
   if (n > 0) return `+${n.toLocaleString('zh-CN')}`
   return n.toLocaleString('zh-CN')
+}
+
+function fmtWatchSec(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '—'
+  return `${n}s`
+}
+
+function toApiPublishedAt(raw?: string): string | undefined {
+  if (!raw?.trim()) return undefined
+  const s = raw.trim().replace(' ', 'T')
+  const d = new Date(s.length === 16 ? `${s}:00` : s)
+  if (Number.isNaN(d.getTime())) return undefined
+  return d.toISOString()
+}
+
+type PublishedImportPayload = {
+  title: string
+  body?: string
+  official_url?: string
+  cover_url?: string
+  published_at?: string
+  publish_status?: string
+  impressions?: number
+  views?: number
+  click_rate_pct?: number
+  watch_count?: number
+  likes?: number
+  favorites?: number
+  comments?: number
+  follower_gain?: number
+  shares?: number
+  avg_watch_seconds?: number
+  metrics_pending?: boolean
+}
+
+function normalizePublishedImportRow(o: Record<string, unknown>): PublishedImportPayload | null {
+  const title = typeof o.title === 'string' ? o.title.trim() : ''
+  if (!title) return null
+  const impressions =
+    typeof o.impressions === 'number'
+      ? o.impressions
+      : typeof o.views === 'number' && o.watch_count === undefined
+        ? o.views
+        : undefined
+  return {
+    title,
+    body: typeof o.body === 'string' ? o.body : '',
+    official_url: typeof o.official_url === 'string' ? o.official_url : undefined,
+    cover_url: typeof o.cover_url === 'string' ? o.cover_url : undefined,
+    published_at:
+      typeof o.published_at === 'string'
+        ? toApiPublishedAt(o.published_at)
+        : undefined,
+    publish_status: typeof o.publish_status === 'string' ? o.publish_status : undefined,
+    impressions,
+    views: impressions,
+    click_rate_pct: typeof o.click_rate_pct === 'number' ? o.click_rate_pct : undefined,
+    watch_count: typeof o.watch_count === 'number' ? o.watch_count : undefined,
+    likes: typeof o.likes === 'number' ? o.likes : undefined,
+    favorites: typeof o.favorites === 'number' ? o.favorites : undefined,
+    comments: typeof o.comments === 'number' ? o.comments : undefined,
+    follower_gain: typeof o.follower_gain === 'number' ? o.follower_gain : undefined,
+    shares: typeof o.shares === 'number' ? o.shares : undefined,
+    avg_watch_seconds: typeof o.avg_watch_seconds === 'number' ? o.avg_watch_seconds : undefined,
+    metrics_pending: o.metrics_pending === true,
+  }
+}
+
+function isTrustedExploreUrl(url?: string): boolean {
+  if (!url?.includes('/explore/')) return false
+  if (url.includes('xsec_token')) return true
+  if (url.includes('xsec_source=pc_creatormng') && !url.includes('xsec_token')) return false
+  return false
+}
+
+function mapScrapeRowToImport(row: CreatorPublishedScrapeRow): PublishedImportPayload {
+  const impressions = row.impressions
+  const official_url = isTrustedExploreUrl(row.official_url) ? row.official_url : undefined
+  return {
+    title: row.title.trim(),
+    official_url,
+    cover_url: row.cover_url,
+    published_at: toApiPublishedAt(row.published_at),
+    publish_status: row.publish_status || 'published',
+    impressions,
+    views: impressions,
+    click_rate_pct: row.click_rate_pct,
+    watch_count: row.watch_count,
+    likes: row.likes,
+    favorites: row.favorites,
+    comments: row.comments,
+    follower_gain: row.follower_gain,
+    shares: row.shares,
+    avg_watch_seconds: row.avg_watch_seconds,
+    metrics_pending: false,
+  }
 }
 
 function draftStatusLabel(status: string): string {
@@ -102,6 +205,7 @@ export function NotesPage() {
   const [editFolderL1, setEditFolderL1] = useState('')
   const [editFolderL2, setEditFolderL2] = useState('')
   const [editBusy, setEditBusy] = useState(false)
+  const [syncCreatorBusy, setSyncCreatorBusy] = useState(false)
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
@@ -112,6 +216,27 @@ export function NotesPage() {
     const rows = await apiGet<PublishedNote[]>('/api/notes/published')
     setPublished(rows)
   }, [])
+
+  const pasteOfficialUrl = useCallback(
+    async (row: PublishedNote) => {
+      const hint = row.title.length > 24 ? `${row.title.slice(0, 24)}…` : row.title
+      const raw = window.prompt(
+        `粘贴小红书笔记链接（${hint}）`,
+        row.official_url || 'https://www.xiaohongshu.com/explore/',
+      )
+      if (raw === null) return
+      const url = raw.trim()
+      if (!url) return
+      try {
+        await apiPatch<PublishedNote>(`/api/notes/published/${row.id}`, { official_url: url })
+        await refreshPublished()
+        showToast('笔记链接已保存')
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : '保存链接失败')
+      }
+    },
+    [refreshPublished, showToast],
+  )
 
   const refreshDrafts = useCallback(async () => {
     const rows = await apiGet<ComposedDraftRow[]>('/api/notes/composed-drafts')
@@ -468,37 +593,102 @@ export function NotesPage() {
       return
     }
     const normalized = items
-      .map((row) => {
-        if (!row || typeof row !== 'object') return null
-        const o = row as Record<string, unknown>
-        const title = typeof o.title === 'string' ? o.title.trim() : ''
-        if (!title) return null
-        return {
-          title,
-          body: typeof o.body === 'string' ? o.body : '',
-          official_url: typeof o.official_url === 'string' ? o.official_url : undefined,
-          views: typeof o.views === 'number' ? o.views : undefined,
-          click_rate_pct: typeof o.click_rate_pct === 'number' ? o.click_rate_pct : undefined,
-          watch_count: typeof o.watch_count === 'number' ? o.watch_count : undefined,
-          likes: typeof o.likes === 'number' ? o.likes : undefined,
-          favorites: typeof o.favorites === 'number' ? o.favorites : undefined,
-          comments: typeof o.comments === 'number' ? o.comments : undefined,
-          follower_gain: typeof o.follower_gain === 'number' ? o.follower_gain : undefined,
-          metrics_pending: o.metrics_pending === true,
-        }
-      })
-      .filter(Boolean) as Record<string, unknown>[]
+      .map((row) =>
+        row && typeof row === 'object' ? normalizePublishedImportRow(row as Record<string, unknown>) : null,
+      )
+      .filter((x): x is PublishedImportPayload => x !== null)
     if (!normalized.length) {
       showToast('没有有效的笔记记录（每条需含 title）')
       return
     }
     try {
-      const res = await apiPost<SyncNotesResponse>('/api/notes/published/import', { items: normalized })
+      const res = await apiPost<SyncNotesResponse>('/api/notes/published/import', {
+        items: normalized,
+        upsert: true,
+      })
       showToast(res.message)
       await refreshPublished()
       setTab('hist')
     } catch (err) {
       showToast(err instanceof Error ? err.message : '导入失败')
+    }
+  }
+
+  const importScrapeRows = async (
+    rows: CreatorPublishedScrapeRow[],
+    linksFound?: number,
+  ) => {
+    if (!rows.length) {
+      showToast('未读取到笔记。请确认 Chrome 已登录创作服务平台后重试。')
+      return
+    }
+    const payload = rows.map(mapScrapeRowToImport)
+    const linkCount =
+      linksFound ??
+      payload.filter((row) => isTrustedExploreUrl(row.official_url)).length
+    const res = await apiPost<SyncNotesResponse>('/api/notes/published/import', {
+      items: payload,
+      upsert: true,
+    })
+    showToast(
+      linkCount > 0
+        ? res.message
+        : `${res.message}（未写入链接：扩展 v0.5.3+ 从 dist 加载，创作中心笔记管理页刷新后再试）`,
+    )
+    await refreshPublished()
+    setTab('hist')
+  }
+
+  const syncFromCreatorCenter = async (linksOnly = false) => {
+    const extId = getBridgeExtensionId('')
+    if (!extId) {
+      showToast('请先在「工作台」展开发布助手并保存扩展编号')
+      return
+    }
+    setSyncCreatorBusy(true)
+    let titlesForMatch: string[] = []
+    if (linksOnly) {
+      try {
+        const fresh = await apiGet<PublishedNote[]>('/api/notes/published')
+        titlesForMatch = fresh
+          .filter((r) => !r.official_url?.includes('xsec_token'))
+          .map((r) => r.title.trim())
+          .filter((t) => t.length >= 2)
+      } catch {
+        titlesForMatch = published
+          .filter((r) => !r.official_url?.includes('xsec_token'))
+          .map((r) => r.title.trim())
+          .filter((t) => t.length >= 2)
+      }
+    }
+    const onDone = async (r: ExtensionScrapeCreatorPublishedResult) => {
+      if (!r.ok) {
+        const hint = r.detail ? `${r.reason}（${r.detail}）` : r.reason
+        showToast(
+          linksOnly
+            ? `${hint}。请确认：①扩展从 dist 加载 v0.5.3+ 并已重新加载；②npm run build；③创作中心笔记管理页已登录并 F5 刷新后再点补全`
+            : hint,
+        )
+        setSyncCreatorBusy(false)
+        return
+      }
+      try {
+        await importScrapeRows(r.items, r.linksFound)
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : '同步入库失败')
+      } finally {
+        setSyncCreatorBusy(false)
+      }
+    }
+    if (linksOnly) {
+      if (!titlesForMatch.length) {
+        showToast('已发布历史中的笔记均已有链接')
+        setSyncCreatorBusy(false)
+        return
+      }
+      tryExtensionScrapeCreatorNoteLinks(extId, onDone, { limit: 100, matchTitles: titlesForMatch })
+    } else {
+      tryExtensionScrapeCreatorPublished(extId, onDone, { limit: 100 })
     }
   }
 
@@ -515,11 +705,29 @@ export function NotesPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
+          id="btn-sync-creator-analytics"
+          disabled={syncCreatorBusy}
+          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          onClick={() => void syncFromCreatorCenter(false)}
+        >
+          {syncCreatorBusy ? '同步中（自动打开笔记页抓链接，约 1–3 分钟）…' : '从创作中心同步'}
+        </button>
+        <button
+          type="button"
+          id="btn-sync-note-links"
+          disabled={syncCreatorBusy}
+          className="rounded-lg border border-brand bg-white px-4 py-2 text-sm font-medium text-brand hover:bg-brand-soft disabled:opacity-50"
+          onClick={() => void syncFromCreatorCenter(true)}
+        >
+          {syncCreatorBusy ? '补全中（从创作中心接口拉取链接）…' : '补全笔记链接'}
+        </button>
+        <button
+          type="button"
           id="btn-sync-xhs"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           onClick={() => importInputRef.current?.click()}
         >
-          同步小红书历史笔记
+          导入 JSON
         </button>
         <button
           type="button"
@@ -530,8 +738,25 @@ export function NotesPage() {
           组合生成新笔记
         </button>
         <span className="text-xs text-slate-500">
-          数据须来自<strong className="font-medium text-slate-600">官方开放接口 / 授权导出 / 手动导入</strong>
-          （示意）
+          同步源：
+          <a
+            href="https://creator.xiaohongshu.com/statistics/data-analysis?source=official"
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand hover:underline"
+          >
+            笔记数据
+          </a>
+          （指标）+
+          <a
+            href="https://creator.xiaohongshu.com/new/note-manager?source=official"
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand hover:underline"
+          >
+            笔记管理
+          </a>
+          （笔记链接）
         </span>
       </div>
 
@@ -557,59 +782,92 @@ export function NotesPage() {
       ) : null}
 
       {tab === 'hist' ? (
+        <>
         <div id="notes-panel-hist" className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[920px] w-full text-left text-xs">
+            <table className="min-w-[1100px] w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                  <th className="px-2 py-2">笔记标题</th>
-                  <th className="px-2 py-2">链接</th>
-                  <th className="px-2 py-2">浏览量</th>
-                  <th className="px-2 py-2">点击率</th>
-                  <th className="px-2 py-2">观看量</th>
+                  <th className="px-2 py-2">笔记</th>
+                  <th className="px-2 py-2">发布时间</th>
+                  <th className="px-2 py-2">状态</th>
+                  <th className="px-2 py-2">曝光</th>
+                  <th className="px-2 py-2">观看</th>
+                  <th className="px-2 py-2">封面点击率</th>
                   <th className="px-2 py-2">点赞</th>
-                  <th className="px-2 py-2">收藏</th>
                   <th className="px-2 py-2">评论</th>
+                  <th className="px-2 py-2">收藏</th>
                   <th className="px-2 py-2">涨粉</th>
+                  <th className="px-2 py-2">分享</th>
+                  <th className="px-2 py-2">均观看</th>
                 </tr>
               </thead>
               <tbody className="text-slate-700">
                 {published.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
-                      暂无已发布记录。点击「同步小红书历史笔记」上传 JSON（含 title 等指标字段）。
+                    <td colSpan={12} className="px-4 py-8 text-center text-sm text-slate-500">
+                      暂无已发布记录。点击「从创作中心同步」读取笔记数据，或「导入 JSON」。
                     </td>
                   </tr>
                 ) : (
                   published.map((row) => (
                     <tr key={row.id} className="border-b border-slate-100">
-                      <td className="max-w-[140px] truncate px-2 py-2">
-                        {row.title}
-                        {row.metrics_pending ? (
-                          <span className="ml-1 text-[10px] text-amber-600">待补数</span>
-                        ) : null}
+                      <td className="max-w-[200px] px-2 py-2">
+                        <div className="flex items-start gap-2">
+                          {row.cover_url ? (
+                            <img
+                              src={row.cover_url}
+                              alt=""
+                              className="h-10 w-8 shrink-0 rounded object-cover bg-slate-100"
+                            />
+                          ) : null}
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{row.title}</div>
+                            {row.official_url ? (
+                              <a
+                                href={row.official_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-0.5 block truncate text-[10px] text-brand hover:underline"
+                              >
+                                {row.official_url.replace(/^https?:\/\//, '').slice(0, 36)}
+                              </a>
+                            ) : (
+                              <button
+                                type="button"
+                                className="mt-0.5 text-[10px] text-brand hover:underline"
+                                onClick={() => void pasteOfficialUrl(row)}
+                              >
+                                粘贴链接
+                              </button>
+                            )}
+                            {row.metrics_pending ? (
+                              <span className="text-[10px] text-amber-600">待补数</span>
+                            ) : null}
+                          </div>
+                        </div>
                       </td>
-                      <td className="max-w-[120px] truncate px-2 py-2">
-                        {row.official_url ? (
-                          <a
-                            href={row.official_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block truncate text-brand hover:underline"
-                          >
-                            {row.official_url.replace(/^https?:\/\//, '').slice(0, 32)}
-                          </a>
+                      <td className="whitespace-nowrap px-2 py-2 text-slate-500">
+                        {row.published_at ? formatYmdHm(row.published_at) : '—'}
+                      </td>
+                      <td className="px-2 py-2">
+                        {row.publish_status === 'rejected' ? (
+                          <span className="rounded bg-rose-50 px-1 py-0.5 text-[10px] text-rose-700">
+                            未通过
+                          </span>
                         ) : (
-                          '—'
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="px-2 py-2">{fmtInt(row.views)}</td>
-                      <td className="px-2 py-2">{fmtPct(row.click_rate_pct)}</td>
+                      <td className="px-2 py-2">{fmtInt(row.impressions ?? row.views)}</td>
                       <td className="px-2 py-2">{fmtInt(row.watch_count)}</td>
+                      <td className="px-2 py-2">{fmtPct(row.click_rate_pct)}</td>
                       <td className="px-2 py-2">{fmtInt(row.likes)}</td>
-                      <td className="px-2 py-2">{fmtInt(row.favorites)}</td>
                       <td className="px-2 py-2">{fmtInt(row.comments)}</td>
+                      <td className="px-2 py-2">{fmtInt(row.favorites)}</td>
                       <td className="px-2 py-2">{fmtSigned(row.follower_gain)}</td>
+                      <td className="px-2 py-2">{fmtInt(row.shares)}</td>
+                      <td className="px-2 py-2">{fmtWatchSec(row.avg_watch_seconds)}</td>
                     </tr>
                   ))
                 )}
@@ -617,6 +875,7 @@ export function NotesPage() {
             </table>
           </div>
         </div>
+        </>
       ) : (
         <div id="notes-panel-draft" className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 lg:grid-cols-[220px_1fr]">
           <aside className="border-b border-slate-100 pb-4 lg:border-b-0 lg:border-r lg:pr-4 lg:pb-0">

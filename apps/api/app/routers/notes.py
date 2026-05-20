@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -23,10 +24,81 @@ from app.schemas import (
     DraftFolderUpdateIn,
     PublishedNoteImportIn,
     PublishedNoteOut,
+    PublishedNotePatchIn,
     SyncNotesResponse,
 )
 
 router = APIRouter(prefix="/notes", tags=["notes"])
+
+_EXPLORE_NOTE_ID_RE = re.compile(r"/explore/([a-f0-9]+)", re.I)
+
+
+def _explore_note_id(url: str | None) -> str | None:
+    if not url:
+        return None
+    m = _EXPLORE_NOTE_ID_RE.search(url.strip())
+    return m.group(1).lower() if m else None
+
+
+def _apply_published_row_fields(note: XhsPublishedNote, row: PublishedNoteImportRow) -> None:
+    note.title = row.title.strip()
+    note.body = (row.body or "").strip()
+    if row.official_url and row.official_url.strip():
+        note.official_url = row.official_url.strip()
+    if row.cover_url and row.cover_url.strip():
+        note.cover_url = row.cover_url.strip()
+    note.published_at = row.published_at
+    if row.publish_status:
+        note.publish_status = row.publish_status.strip()[:32] or "published"
+    note.impressions = row.impressions
+    note.views = row.views
+    note.click_rate_pct = row.click_rate_pct
+    note.watch_count = row.watch_count
+    note.likes = row.likes
+    note.favorites = row.favorites
+    note.comments = row.comments
+    note.follower_gain = row.follower_gain
+    note.shares = row.shares
+    note.avg_watch_seconds = row.avg_watch_seconds
+    note.metrics_pending = row.metrics_pending
+
+
+def _find_published_for_upsert(
+    db: Session,
+    user: User,
+    row: PublishedNoteImportRow,
+) -> XhsPublishedNote | None:
+    title = row.title.strip()
+    if not title:
+        return None
+    if row.official_url:
+        url = row.official_url.strip()
+        if url:
+            hit = db.scalar(
+                select(XhsPublishedNote).where(
+                    XhsPublishedNote.owner_id == user.id,
+                    XhsPublishedNote.official_url == url,
+                )
+            )
+            if hit is not None:
+                return hit
+            note_id = _explore_note_id(url)
+            if note_id:
+                hit = db.scalar(
+                    select(XhsPublishedNote).where(
+                        XhsPublishedNote.owner_id == user.id,
+                        XhsPublishedNote.official_url.ilike(f"%/explore/{note_id}%"),
+                    )
+                )
+                if hit is not None:
+                    return hit
+    q = select(XhsPublishedNote).where(
+        XhsPublishedNote.owner_id == user.id,
+        func.lower(XhsPublishedNote.title) == title.lower(),
+    )
+    if row.published_at is not None:
+        q = q.where(XhsPublishedNote.published_at == row.published_at)
+    return db.scalars(q.order_by(XhsPublishedNote.synced_at.desc()).limit(1)).first()
 
 
 def _folder_path_label(folder: Optional[DraftFolder]) -> Optional[str]:
@@ -173,10 +245,15 @@ def list_published_notes(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[XhsPublishedNote]:
+    reach = func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.views)
     rows = db.scalars(
         select(XhsPublishedNote)
         .where(XhsPublishedNote.owner_id == user.id)
-        .order_by(XhsPublishedNote.synced_at.desc())
+        .order_by(
+            XhsPublishedNote.published_at.desc().nulls_last(),
+            reach.desc().nulls_last(),
+            XhsPublishedNote.synced_at.desc(),
+        )
     ).all()
     return list(rows)
 
@@ -190,27 +267,61 @@ def import_published_notes(
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empty_items")
     now = datetime.now(timezone.utc)
+    imported = 0
+    updated = 0
     for row in payload.items:
-        db.add(
-            XhsPublishedNote(
-                owner_id=user.id,
-                title=row.title.strip(),
-                body=(row.body or "").strip(),
-                official_url=(row.official_url.strip() if row.official_url else None) or None,
-                views=row.views,
-                click_rate_pct=row.click_rate_pct,
-                watch_count=row.watch_count,
-                likes=row.likes,
-                favorites=row.favorites,
-                comments=row.comments,
-                follower_gain=row.follower_gain,
-                metrics_pending=row.metrics_pending,
-                synced_at=now,
-            )
-        )
+        if payload.upsert:
+            existing = _find_published_for_upsert(db, user, row)
+            if existing is not None:
+                _apply_published_row_fields(existing, row)
+                existing.synced_at = now
+                updated += 1
+                continue
+        note = XhsPublishedNote(owner_id=user.id, synced_at=now)
+        _apply_published_row_fields(note, row)
+        db.add(note)
+        imported += 1
     db.commit()
-    n = len(payload.items)
-    return SyncNotesResponse(imported_count=n, message=f"已导入 {n} 条已发布笔记记录")
+    parts: list[str] = []
+    if imported:
+        parts.append(f"新增 {imported} 条")
+    if updated:
+        parts.append(f"更新 {updated} 条")
+    with_links = sum(
+        1
+        for row in payload.items
+        if row.official_url and "/explore/" in row.official_url
+    )
+    msg = "已同步已发布笔记：" + ("，".join(parts) if parts else "无变更")
+    if with_links:
+        msg += f"，{with_links} 条含笔记链接"
+    elif payload.items:
+        msg += "；未获取到笔记链接（请重新加载扩展 v0.5.3+ 后点「补全笔记链接」，需已登录创作中心笔记管理页）"
+    return SyncNotesResponse(imported_count=imported, updated_count=updated, message=msg)
+
+
+@router.patch("/published/{note_id}", response_model=PublishedNoteOut)
+def patch_published_note(
+    note_id: UUID,
+    payload: PublishedNotePatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> XhsPublishedNote:
+    note = db.scalar(
+        select(XhsPublishedNote).where(
+            XhsPublishedNote.id == note_id,
+            XhsPublishedNote.owner_id == user.id,
+        )
+    )
+    if note is None:
+        raise HTTPException(status_code=404, detail="published_note_not_found")
+    if payload.official_url is not None:
+        url = payload.official_url.strip()
+        note.official_url = url if url else None
+    note.synced_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 @router.get("/draft-folders", response_model=list[DraftFolderTreeOut])

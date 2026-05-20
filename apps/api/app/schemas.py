@@ -195,6 +195,10 @@ class PublishedNoteOut(BaseModel):
     title: str
     body: str = ""
     official_url: Optional[str] = None
+    cover_url: Optional[str] = None
+    published_at: Optional[datetime] = None
+    publish_status: str = "published"
+    impressions: Optional[int] = None
     views: Optional[int] = None
     click_rate_pct: Optional[float] = None
     watch_count: Optional[int] = None
@@ -202,6 +206,8 @@ class PublishedNoteOut(BaseModel):
     favorites: Optional[int] = None
     comments: Optional[int] = None
     follower_gain: Optional[int] = None
+    shares: Optional[int] = None
+    avg_watch_seconds: Optional[int] = None
     synced_at: datetime
     metrics_pending: bool
 
@@ -210,6 +216,10 @@ class PublishedNoteImportRow(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     body: str = ""
     official_url: Optional[str] = Field(default=None, max_length=8000)
+    cover_url: Optional[str] = Field(default=None, max_length=8000)
+    published_at: Optional[datetime] = None
+    publish_status: Optional[str] = Field(default=None, max_length=32)
+    impressions: Optional[int] = None
     views: Optional[int] = None
     click_rate_pct: Optional[float] = None
     watch_count: Optional[int] = None
@@ -217,15 +227,23 @@ class PublishedNoteImportRow(BaseModel):
     favorites: Optional[int] = None
     comments: Optional[int] = None
     follower_gain: Optional[int] = None
+    shares: Optional[int] = None
+    avg_watch_seconds: Optional[int] = None
     metrics_pending: bool = False
 
 
 class PublishedNoteImportIn(BaseModel):
     items: List[PublishedNoteImportRow]
+    upsert: bool = True
+
+
+class PublishedNotePatchIn(BaseModel):
+    official_url: Optional[str] = Field(default=None, max_length=8000)
 
 
 class SyncNotesResponse(BaseModel):
     imported_count: int
+    updated_count: int = 0
     message: str
 
 

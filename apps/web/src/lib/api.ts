@@ -140,6 +140,10 @@ export type PublishedNote = {
   /** 已发布笔记正文；手工导入 JSON 可带；缺省为空 */
   body?: string
   official_url: string | null
+  cover_url?: string | null
+  published_at?: string | null
+  publish_status?: string
+  impressions?: number | null
   views: number | null
   click_rate_pct: number | null
   watch_count: number | null
@@ -147,8 +151,16 @@ export type PublishedNote = {
   favorites: number | null
   comments: number | null
   follower_gain: number | null
+  shares?: number | null
+  avg_watch_seconds?: number | null
   synced_at: string
   metrics_pending: boolean
+}
+
+export type SyncNotesResponse = {
+  imported_count: number
+  updated_count?: number
+  message: string
 }
 
 export type DraftFolderChild = {
@@ -191,11 +203,6 @@ export type ComposedDraftSnapshotImage = {
 export type ComposedDraftDetail = ComposedDraftRow & {
   snapshot_images: ComposedDraftSnapshotImage[]
   updated_at: string
-}
-
-export type SyncNotesResponse = {
-  imported_count: number
-  message: string
 }
 
 export type OverviewTopNote = {

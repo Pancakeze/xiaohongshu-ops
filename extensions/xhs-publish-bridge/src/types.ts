@@ -45,6 +45,24 @@ export type ExternalMessage =
       version: 1;
       action: "SCRAPE_NOTE_RELATED";
       payload: { noteUrl: string; limit?: number };
+    }
+  | {
+      channel: "XHS_PUBLISH_BRIDGE";
+      version: 1;
+      action: "SCRAPE_CREATOR_PUBLISHED";
+      payload?: { limit?: number };
+    }
+  | {
+      channel: "XHS_PUBLISH_BRIDGE";
+      version: 1;
+      action: "SCRAPE_CREATOR_PUBLISHED_POLL";
+      payload: { jobId: string };
+    }
+  | {
+      channel: "XHS_PUBLISH_BRIDGE";
+      version: 1;
+      action: "SCRAPE_CREATOR_NOTE_LINKS";
+      payload?: { limit?: number; matchTitles?: string[] };
     };
 
 export type FillResult = {
@@ -66,6 +84,41 @@ export type ScrapeNoteCard = {
 export type ScrapeTopNotesResult =
   | { ok: true; keyword: string; items: ScrapeNoteCard[]; tabId?: number }
   | { ok: false; error: string; detail?: string; tabId?: number };
+
+/** 创作服务平台 · 笔记数据（statistics/data-analysis）表格行 */
+export type CreatorPublishedNoteRow = {
+  title: string;
+  published_at?: string;
+  publish_status?: string;
+  cover_url?: string;
+  official_url?: string;
+  impressions?: number;
+  watch_count?: number;
+  click_rate_pct?: number;
+  likes?: number;
+  comments?: number;
+  favorites?: number;
+  follower_gain?: number;
+  shares?: number;
+  avg_watch_seconds?: number;
+};
+
+export type ScrapeCreatorPublishedResult =
+  | { ok: true; items: CreatorPublishedNoteRow[]; tabId?: number; linksFound?: number }
+  | { ok: false; error: string; detail?: string; tabId?: number };
+
+/** 异步抓取任务立即返回 */
+export type ScrapeCreatorPublishedJobStart = {
+  ok: true;
+  pending: true;
+  jobId: string;
+};
+
+export type ScrapeCreatorPublishedJobPoll =
+  | { status: "running"; startedAt?: number }
+  | { status: "done"; result: ScrapeCreatorPublishedResult }
+  | { status: "error"; error: string; detail?: string }
+  | { status: "unknown" };
 
 /** 运营台 → 扩展：在已登录的 Gemini 页生图并回传 base64（与 `apps/web` / API `via-extension` 一致） */
 export type GeminiRunTurnExternalPayload = {

@@ -63,6 +63,7 @@ def get_overview(
         or 0
     )
 
+    reach = func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.views)
     quality_notes = (
         db.scalar(
             select(func.count())
@@ -70,8 +71,8 @@ def get_overview(
             .where(
                 XhsPublishedNote.owner_id == user.id,
                 XhsPublishedNote.metrics_pending.is_(False),
-                XhsPublishedNote.views.isnot(None),
-                XhsPublishedNote.views >= threshold,
+                reach.isnot(None),
+                reach >= threshold,
             )
         )
         or 0
@@ -90,7 +91,10 @@ def get_overview(
     top_rows = db.scalars(
         select(XhsPublishedNote)
         .where(XhsPublishedNote.owner_id == user.id)
-        .order_by(XhsPublishedNote.views.desc().nulls_last(), XhsPublishedNote.synced_at.desc())
+        .order_by(
+            func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.views).desc().nulls_last(),
+            XhsPublishedNote.synced_at.desc(),
+        )
         .limit(5)
     ).all()
 

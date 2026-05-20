@@ -222,6 +222,32 @@ def ensure_xhs_published_notes_schema() -> None:
             conn.execute(
                 text("ALTER TABLE xhs_published_notes ADD COLUMN body TEXT NOT NULL DEFAULT ''")
             )
+        cols_xhs = (
+            {c["name"] for c in insp_conn.get_columns("xhs_published_notes")}
+            if "xhs_published_notes" in insp_conn.get_table_names()
+            else set()
+        )
+        if "xhs_published_notes" in insp_conn.get_table_names():
+            if "cover_url" not in cols_xhs:
+                conn.execute(text("ALTER TABLE xhs_published_notes ADD COLUMN cover_url TEXT NULL"))
+            if "published_at" not in cols_xhs:
+                conn.execute(
+                    text("ALTER TABLE xhs_published_notes ADD COLUMN published_at TIMESTAMPTZ NULL")
+                )
+            if "publish_status" not in cols_xhs:
+                conn.execute(
+                    text(
+                        "ALTER TABLE xhs_published_notes ADD COLUMN publish_status VARCHAR(32) NOT NULL DEFAULT 'published'"
+                    )
+                )
+            if "impressions" not in cols_xhs:
+                conn.execute(text("ALTER TABLE xhs_published_notes ADD COLUMN impressions INTEGER NULL"))
+            if "shares" not in cols_xhs:
+                conn.execute(text("ALTER TABLE xhs_published_notes ADD COLUMN shares INTEGER NULL"))
+            if "avg_watch_seconds" not in cols_xhs:
+                conn.execute(
+                    text("ALTER TABLE xhs_published_notes ADD COLUMN avg_watch_seconds INTEGER NULL")
+                )
 
 
 def ensure_publish_attempts_schema() -> None:

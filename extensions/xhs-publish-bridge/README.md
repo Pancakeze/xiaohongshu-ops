@@ -6,6 +6,13 @@
 
 **重要：** 桥接只做「打开创作页 + 尽量填入」，**不会**也**不能**代替你在平台上点击最终「发布」；发布前仍需你在 `creator.xiaohongshu.com` 登录、过审与手动确认发布。若标题/正文未出现，多为创作页 DOM 改版，需更新 `content.ts` 里的选择器；运营台请用 **`http://127.0.0.1:5173`** 或 **`http://localhost:5173`**（`manifest` 已允许 `localhost` 任意端口外连）。
 
+### 开发/加载扩展（笔记链接同步必读）
+
+1. 修改 `src/` 后执行：`npm run build`（产物在 **`dist/`**）。
+2. Chrome → `chrome://extensions` →「加载已解压的扩展程序」→ 选择本目录下的 **`dist`** 文件夹（不是仓库根目录、也不是 `src`）。
+3. 每次改代码后：**重新 build + 在扩展页点「重新加载」**，否则运营台仍跑旧逻辑（会出现「更新 N 条但无链接」）。
+4. 「补全笔记链接」依赖创作中心 **`/api/galaxy/v2/creator/note/user/posted`**：扩展会拦截页面自带请求（含 `x-s` 签名）并从中读取 `id` + `xsec_token` 拼接 explore 链接。
+
 ## 为什么必须扩展
 
 只有跑在 `https://creator.xiaohongshu.com/*` 下的脚本才能稳定访问该域下的 DOM。运营台域名与小红书不同源，**不能直接**给创作页赋值。
@@ -67,6 +74,38 @@ chrome.runtime.sendMessage(
 |------|----------|
 | 扩展卡片里 **Service Worker（无效）** | 多为 MV3 **休眠**，不是坏了；运营台点发布后 Background 会再拉起。可点该链接打开 DevTools，若有无捕获异常再反馈。 |
 | **`GET chrome-extension://invalid/`** | 多为 **创作站自身脚本** 拼出的探测地址，**不是**本扩展的 ID；本扩展 ID 形如 `chifkacjfcgkelffnmanodkaahpkjbnf`。 |
+| **笔记管理页一直刷新、无新标签** | v0.4.0 已修：抓链超时不再 `tabs.update` 强刷笔记管理；`window.open` 不再被拦截，封面点击可正常新开 explore 标签。 |
+
+### 如何确认「脚本点击是否被拦截」
+
+**方法 A（最直接）**：在 [笔记管理](https://creator.xiaohongshu.com/new/note-manager) 页按 F12 → Console，粘贴执行：
+
+```javascript
+(() => {
+  const card = document.querySelector(".note, motion-div.note");
+  const img = card?.querySelector("motion-div.img, div.img, .img img, img");
+  console.log("找到封面元素:", !!img, img?.getBoundingClientRect?.());
+  img?.click();
+})();
+```
+
+- **立刻出现** `xiaohongshu.com/explore/...` 新标签 → 脚本点击**未被拦**，问题更可能在扩展未匹配标题/未连上该 Tab。  
+- **没有任何新标签** → 再**用鼠标点同一封面**；鼠标能开、脚本不能 → **站点要求真实用户手势**，自动化点封面不可靠。  
+- 地址栏出现 **弹窗被拦截** 图标 → 对该站允许弹窗。
+
+**方法 B（扩展诊断）**：`chrome://extensions` → 发布助手 → **Service Worker** → 控制台执行（把 `YOUR_EXT_ID` 换成扩展 ID）：
+
+```javascript
+chrome.runtime.sendMessage("YOUR_EXT_ID", {
+  channel: "XHS_PUBLISH_BRIDGE",
+  version: 1,
+  action: "DEBUG_NOTE_MANAGER_PROBE"
+}, (r) => console.log(r));
+```
+
+看返回的 `verdict`：`script_click_opens_tab` / `click_fired_but_no_new_tab` / `no_cover_element_found`。
+
+**方法 C（补全过程中）**：同一 Service Worker 控制台过滤 `[xhs-publish-bridge]`，点「补全笔记链接」后应看到 `clickCover start`、`tryOnce`、`MAIN click` 等日志。
 | **`POST ...fe.xiaohongshu.com/.../proxy 400`** | 多为站内 **草稿/上传协议** 与当前表单状态不一致（含受控输入未同步）。v0.1.2 已尽量按框架习惯写入；若仍 400，可在创作页 **手动点一下标题框再失焦** 或 **重新选图** 触发站内校验。 |
 
 ## 构建与加载

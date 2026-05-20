@@ -418,6 +418,187 @@ export function tryExtensionScrapeExploreRelated(
   }
 }
 
+export type CreatorPublishedScrapeRow = {
+  title: string
+  published_at?: string
+  publish_status?: string
+  cover_url?: string
+  official_url?: string
+  impressions?: number
+  watch_count?: number
+  click_rate_pct?: number
+  likes?: number
+  comments?: number
+  favorites?: number
+  follower_gain?: number
+  shares?: number
+  avg_watch_seconds?: number
+}
+
+export type ExtensionScrapeCreatorPublishedResult =
+  | { ok: true; items: CreatorPublishedScrapeRow[]; linksFound?: number }
+  | { ok: false; reason: string; detail?: string }
+
+/** 补全链接：按待补条数给足轮询时间（每条约 20–40s）；全量同步默认 8 分钟 */
+function creatorScrapePollMaxAttempts(
+  action: 'SCRAPE_CREATOR_PUBLISHED' | 'SCRAPE_CREATOR_NOTE_LINKS',
+  matchTitlesCount = 0,
+): number {
+  if (action === 'SCRAPE_CREATOR_NOTE_LINKS' && matchTitlesCount > 0) {
+    return Math.min(900, Math.max(180, 90 + matchTitlesCount * 50))
+  }
+  return 480
+}
+
+function pollCreatorScrapeJob(
+  extId: string,
+  jobId: string,
+  onDone: (r: ExtensionScrapeCreatorPublishedResult) => void,
+  attempt = 0,
+  maxAttempts = 480,
+): void {
+  if (attempt >= maxAttempts) {
+    const minutes = Math.round(maxAttempts / 60)
+    onDone({
+      ok: false,
+      reason: `采集超时（约 ${minutes} 分钟）。可分批补全（每次 3～5 条）或用手动「粘贴链接」`,
+    })
+    return
+  }
+  setTimeout(() => {
+    try {
+      chrome.runtime.sendMessage(
+        extId,
+        {
+          channel: 'XHS_PUBLISH_BRIDGE' as const,
+          version: 1 as const,
+          action: 'SCRAPE_CREATOR_PUBLISHED_POLL' as const,
+          payload: { jobId },
+        },
+        (pollResp: unknown) => {
+          const errMsg = chrome.runtime.lastError?.message
+          if (errMsg) {
+            onDone({ ok: false, reason: errMsg })
+            return
+          }
+          const poll =
+            (pollResp && typeof pollResp === 'object' ? (pollResp as Record<string, unknown>) : null) ||
+            null
+          const status = typeof poll?.status === 'string' ? poll.status : ''
+          if (status === 'running') {
+            pollCreatorScrapeJob(extId, jobId, onDone, attempt + 1, maxAttempts)
+            return
+          }
+          if (status === 'done') {
+            const result =
+              poll?.result && typeof poll.result === 'object'
+                ? (poll.result as Record<string, unknown>)
+                : null
+            if (result?.ok) {
+              onDone({
+                ok: true,
+                items: Array.isArray(result.items)
+                  ? (result.items as CreatorPublishedScrapeRow[])
+                  : [],
+                linksFound:
+                  typeof result.linksFound === 'number' ? result.linksFound : undefined,
+              })
+              return
+            }
+            onDone({
+              ok: false,
+              reason:
+                typeof result?.error === 'string' ? String(result.error) : '抓取失败',
+              detail: typeof result?.detail === 'string' ? String(result.detail) : undefined,
+            })
+            return
+          }
+          if (status === 'error') {
+            onDone({
+              ok: false,
+              reason: typeof poll?.error === 'string' ? String(poll.error) : '抓取失败',
+              detail: typeof poll?.detail === 'string' ? String(poll.detail) : undefined,
+            })
+            return
+          }
+          pollCreatorScrapeJob(extId, jobId, onDone, attempt + 1, maxAttempts)
+        },
+      )
+    } catch (e) {
+      onDone({ ok: false, reason: String(e) })
+    }
+  }, 1000)
+}
+
+function startCreatorScrapeJobFromExtension(
+  extId: string,
+  action: 'SCRAPE_CREATOR_PUBLISHED' | 'SCRAPE_CREATOR_NOTE_LINKS',
+  onDone: (r: ExtensionScrapeCreatorPublishedResult) => void,
+  opts?: { limit?: number; matchTitles?: string[] },
+): void {
+  if (!extId) {
+    onDone({ ok: false, reason: '请先在「工作台」填写并保存发布助手编号' })
+    return
+  }
+  if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
+    onDone({ ok: false, reason: '请使用 Chrome 打开本运营台，并安装发布助手扩展' })
+    return
+  }
+  const msg = {
+    channel: 'XHS_PUBLISH_BRIDGE' as const,
+    version: 1 as const,
+    action,
+    payload: { limit: opts?.limit ?? 80, matchTitles: opts?.matchTitles },
+  }
+  try {
+    chrome.runtime.sendMessage(extId, msg, (response: unknown) => {
+      const errMsg = chrome.runtime.lastError?.message
+      if (errMsg) {
+        onDone({ ok: false, reason: errMsg })
+        return
+      }
+      const resp = (response && typeof response === 'object' ? (response as Record<string, unknown>) : null) || null
+      if (resp?.ok && resp.pending && typeof resp.jobId === 'string') {
+        const pending = opts?.matchTitles?.length ?? 0
+        const maxAttempts = creatorScrapePollMaxAttempts(action, pending)
+        pollCreatorScrapeJob(extId, resp.jobId, onDone, 0, maxAttempts)
+        return
+      }
+      if (resp && resp.ok && Array.isArray(resp.items)) {
+        onDone({
+          ok: true,
+          items: resp.items as CreatorPublishedScrapeRow[],
+        })
+        return
+      }
+      onDone({
+        ok: false,
+        reason: typeof resp?.error === 'string' ? String(resp.error) : '抓取失败，请确认已登录创作服务平台',
+        detail: typeof resp?.detail === 'string' ? String(resp.detail) : undefined,
+      })
+    })
+  } catch (e) {
+    onDone({ ok: false, reason: String(e) })
+  }
+}
+
+export function tryExtensionScrapeCreatorPublished(
+  extId: string,
+  onDone: (r: ExtensionScrapeCreatorPublishedResult) => void,
+  opts?: { limit?: number; matchTitles?: string[] },
+): void {
+  startCreatorScrapeJobFromExtension(extId, 'SCRAPE_CREATOR_PUBLISHED', onDone, opts)
+}
+
+/** 笔记管理「全部」按运营台已发布标题匹配并补全 explore 链接 */
+export function tryExtensionScrapeCreatorNoteLinks(
+  extId: string,
+  onDone: (r: ExtensionScrapeCreatorPublishedResult) => void,
+  opts?: { limit?: number; matchTitles?: string[] },
+): void {
+  startCreatorScrapeJobFromExtension(extId, 'SCRAPE_CREATOR_NOTE_LINKS', onDone, opts)
+}
+
 export function publishClipboardFallback(
   title: string,
   body: string,
