@@ -16,6 +16,11 @@ from app.schemas import OverviewOut, OverviewTopNoteOut
 router = APIRouter(prefix="/overview", tags=["overview"])
 
 
+def _published_reach_expr():
+    """优质笔记与 Top 排行：优先曝光量，曝光为空则用观看量。"""
+    return func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.watch_count)
+
+
 def _current_week_bounds_utc() -> tuple[datetime, datetime, str]:
     tz = ZoneInfo(settings.overview_week_timezone)
     now_local = datetime.now(tz)
@@ -63,7 +68,7 @@ def get_overview(
         or 0
     )
 
-    reach = func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.views)
+    reach = _published_reach_expr()
     quality_notes = (
         db.scalar(
             select(func.count())
@@ -92,7 +97,7 @@ def get_overview(
         select(XhsPublishedNote)
         .where(XhsPublishedNote.owner_id == user.id)
         .order_by(
-            func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.views).desc().nulls_last(),
+            _published_reach_expr().desc().nulls_last(),
             XhsPublishedNote.synced_at.desc(),
         )
         .limit(5)
@@ -103,7 +108,7 @@ def get_overview(
             id=r.id,
             title=(r.title or "").strip() or "（无标题）",
             summary=_body_summary(r.body or ""),
-            views=r.views,
+            views=r.impressions if r.impressions is not None else r.watch_count,
             official_url=r.official_url,
             metrics_pending=r.metrics_pending,
         )

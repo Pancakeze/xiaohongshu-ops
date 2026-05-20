@@ -71,7 +71,7 @@ export function DashPage() {
           ) : null}
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-xs text-slate-500">{`优质笔记（浏览量 > ${formatThresholdLabel(th)}）`}</div>
+          <div className="text-xs text-slate-500">{`优质笔记（曝光 > ${formatThresholdLabel(th)}，无曝光则观看）`}</div>
           <div className="mt-1 text-2xl font-bold text-slate-900">{data.quality_notes_count}</div>
           <div className="mt-2 text-xs text-slate-400">可配置阈值（服务端 OVERVIEW_QUALITY_VIEWS_THRESHOLD）</div>
         </div>

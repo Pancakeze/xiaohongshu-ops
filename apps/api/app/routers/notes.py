@@ -245,7 +245,7 @@ def list_published_notes(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[XhsPublishedNote]:
-    reach = func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.views)
+    reach = func.coalesce(XhsPublishedNote.impressions, XhsPublishedNote.watch_count)
     rows = db.scalars(
         select(XhsPublishedNote)
         .where(XhsPublishedNote.owner_id == user.id)
