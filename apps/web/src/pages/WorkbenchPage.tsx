@@ -106,6 +106,8 @@ export function WorkbenchPage() {
   const [newUrl, setNewUrl] = useState('')
   const [uploadingLocal, setUploadingLocal] = useState(false)
   const [previewTab, setPreviewTab] = useState<'note' | 'cover'>('note')
+  const [carouselIndex, setCarouselIndex] = useState(0)
+  const carouselRef = useRef<HTMLDivElement>(null)
   const [noteImportKey, setNoteImportKey] = useState('')
   const [noteImportLoading, setNoteImportLoading] = useState(false)
   const [noteImportBusy, setNoteImportBusy] = useState(false)
@@ -438,13 +440,26 @@ export function WorkbenchPage() {
       }))
   }, [sortedImages])
 
-  const firstPhoneVisual = useMemo(() => {
-    const starred = publishImages.find((p) => p.star)
-    if (starred) return { type: 'img' as const, url: starred.url }
-    if (publishImages[0]) return { type: 'img' as const, url: publishImages[0].url }
-    if (coverUrl.trim()) return { type: 'img' as const, url: coverUrl.trim() }
-    return { type: 'placeholder' as const }
+  const phonePreviewImages = useMemo(() => {
+    const sorted = [...publishImages].sort((a, b) => Number(b.star) - Number(a.star))
+    const urls = sorted.map((p) => p.url)
+    if (urls.length) return urls
+    if (coverUrl.trim()) return [coverUrl.trim()]
+    return []
   }, [publishImages, coverUrl])
+
+  useEffect(() => {
+    setCarouselIndex(0)
+    carouselRef.current?.scrollTo({ left: 0 })
+  }, [phonePreviewImages])
+
+  const onCarouselScroll = useCallback(() => {
+    const el = carouselRef.current
+    if (!el || phonePreviewImages.length <= 1) return
+    const w = el.clientWidth
+    if (w <= 0) return
+    setCarouselIndex(Math.min(phonePreviewImages.length - 1, Math.round(el.scrollLeft / w)))
+  }, [phonePreviewImages.length])
 
   const coverPreviewUrl = useMemo(
     () =>
@@ -454,10 +469,8 @@ export function WorkbenchPage() {
     [publishImages, coverUrl],
   )
 
-  const phoneBodyPreview = useMemo(() => {
-    const merged = formatBodyForXhsPublish(body, parseTopicsInput(topicsInput))
-    const raw = merged || ''
-    return raw.slice(0, 200) + (raw.length > 200 ? '…' : '')
+  const phoneBodyFull = useMemo(() => {
+    return formatBodyForXhsPublish(body, parseTopicsInput(topicsInput)) || ''
   }, [body, topicsInput])
 
   const handlePublish = () => {
@@ -1082,23 +1095,56 @@ export function WorkbenchPage() {
           </div>
 
           <div className="mx-auto w-[280px] overflow-hidden rounded-[2rem] border-8 border-slate-900 bg-slate-900 shadow-xl">
-            <div className="flex min-h-[520px] flex-col rounded-b-3xl bg-white">
+            <div className="flex h-[520px] flex-col rounded-b-3xl bg-white">
               <div className="h-7 shrink-0 bg-slate-900" />
               {previewTab === 'note' ? (
-                <div className="flex flex-1 flex-col overflow-hidden p-3">
-                  <div className="mb-2 overflow-hidden rounded-xl">
-                    {firstPhoneVisual.type === 'img' ? (
-                      <div className="relative aspect-[3/4]">
-                        <img src={firstPhoneVisual.url} alt="" className="h-full w-full object-cover" />
-                      </div>
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+                  <div className="relative mb-2 shrink-0 overflow-hidden rounded-xl">
+                    {phonePreviewImages.length > 0 ? (
+                      <>
+                        <div
+                          ref={carouselRef}
+                          className="flex aspect-[3/4] snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                          onScroll={onCarouselScroll}
+                        >
+                          {phonePreviewImages.map((url, i) => (
+                            <div key={`${url}-${i}`} className="h-full w-full shrink-0 snap-center">
+                              <img src={url} alt="" className="h-full w-full object-cover" draggable={false} />
+                            </div>
+                          ))}
+                        </div>
+                        {phonePreviewImages.length > 1 ? (
+                          <>
+                            <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-black/10 to-transparent" />
+                            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-black/10 to-transparent" />
+                            <div className="pointer-events-none absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                              {phonePreviewImages.map((_, i) => (
+                                <span
+                                  key={i}
+                                  className={`h-1.5 rounded-full transition-all ${
+                                    i === carouselIndex ? 'w-3 bg-white shadow-sm' : 'w-1.5 bg-white/60'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <div className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/45 px-1.5 py-0.5 text-[10px] tabular-nums text-white">
+                              {carouselIndex + 1}/{phonePreviewImages.length}
+                            </div>
+                          </>
+                        ) : null}
+                      </>
                     ) : (
                       <div className="flex aspect-[3/4] items-end justify-center bg-gradient-to-b from-rose-100 to-sky-50 pb-4 text-xs text-slate-500">
                         首图预览
                       </div>
                     )}
                   </div>
-                  <p className="text-sm font-semibold leading-snug text-slate-900">{title || '标题'}</p>
-                  <p className="mt-2 line-clamp-6 whitespace-pre-line text-xs text-slate-600">{phoneBodyPreview || '正文预览与左侧同步…'}</p>
+                  <p className="shrink-0 text-sm font-semibold leading-snug text-slate-900">{title || '标题'}</p>
+                  <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <p className="whitespace-pre-line text-xs leading-relaxed text-slate-600">
+                      {phoneBodyFull || '正文预览与左侧同步…'}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="flex min-h-[480px] flex-col items-center justify-center p-4">
