@@ -27,6 +27,7 @@ class DraftImageOut(BaseModel):
     id: UUID
     pool_id: UUID
     sort_order: int
+    name: str = ""
     public_url: str
     is_cover: bool
     include_in_publish: bool
@@ -103,6 +104,7 @@ class DraftImageCreateIn(BaseModel):
     public_url: str = Field(..., min_length=1, max_length=8000)
     pool_id: Optional[UUID] = None
     sort_order: Optional[int] = None
+    name: Optional[str] = Field(default=None, max_length=120)
     is_cover: bool = False
     include_in_publish: bool = True
     source_copy_version_id: Optional[UUID] = None
@@ -110,6 +112,7 @@ class DraftImageCreateIn(BaseModel):
 
 class DraftImagePatchIn(BaseModel):
     sort_order: Optional[int] = None
+    name: Optional[str] = Field(default=None, max_length=120)
     is_cover: Optional[bool] = None
     include_in_publish: Optional[bool] = None
 

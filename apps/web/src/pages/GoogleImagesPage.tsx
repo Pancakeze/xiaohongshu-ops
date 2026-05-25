@@ -7,6 +7,7 @@ import {
 } from '../lib/api'
 import { PublishAssistantCollapsible } from '../components/PublishAssistantCollapsible'
 import { tryGeminiExtensionRun } from '../lib/geminiExtensionBridge'
+import { formatYmdHm } from '../lib/formatDate'
 import { getBridgeExtensionId, persistBridgeExtensionId } from '../lib/publishBridge'
 
 type LocalSessionRef = { id: string; createdAt: string; label?: string }
@@ -82,10 +83,9 @@ function loadLastSessionId(): string | null {
 }
 
 function labelForSession(s: LocalSessionRef): string {
-  const dt = new Date(s.createdAt)
-  const hint = isNaN(dt.getTime()) ? '' : dt.toLocaleString()
-  const short = s.id.replace(/-/g, '').slice(0, 8)
-  return s.label?.trim() ? `${s.label.trim()} · ${short}` : hint ? `${hint} · ${short}` : short
+  const dt = formatYmdHm(s.createdAt)
+  const remark = s.label?.trim() || '（无备注）'
+  return dt ? `${dt}-${remark}` : remark
 }
 
 function turnTitle(turn: GoogleImageTurn, idx: number): string {

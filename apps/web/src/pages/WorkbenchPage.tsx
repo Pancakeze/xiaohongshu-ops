@@ -648,7 +648,7 @@ export function WorkbenchPage() {
 
   const removeImage = async (img: DraftImage) => {
     if (!entryId) return
-    if (!confirmDeleteDraftImage(img)) return
+    if (!(await confirmDeleteDraftImage(img))) return
     try {
       await apiDelete(`/api/entries/${entryId}/images/${img.id}`)
       await reloadEntry(entryId)
@@ -685,12 +685,6 @@ export function WorkbenchPage() {
         </div>
       )}
 
-      <div className="mb-4 max-w-4xl rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-white">
-        <strong className="text-slate-200">工作台</strong>
-        <br />
-        左侧编辑正文与图稿，右侧为手机预览；底部「发布到小红书」会优先通过已安装的<strong className="text-slate-100">发布助手</strong>
-        尝试把内容写入创作页，失败时改为打开创作页并把标题、正文与配图清单放到剪贴板。
-      </div>
       <p className="mb-4 text-xs text-slate-500">
         内容会随编辑自动保存。
         {saving ? <span className="ml-2 text-brand">· 保存中…</span> : null}

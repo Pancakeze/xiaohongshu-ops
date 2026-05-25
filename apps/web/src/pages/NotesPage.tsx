@@ -21,6 +21,8 @@ import {
   resolveCurrentEntryId,
   scheduleWorkbenchLoadComposedDraft,
 } from '../lib/currentEntry'
+import { groupImagesByPool } from '../lib/draftImage'
+import { appConfirm, appPrompt } from '../lib/appDialog'
 import { formatYmdHm } from '../lib/formatDate'
 import {
   getBridgeExtensionId,
@@ -29,6 +31,8 @@ import {
   type CreatorPublishedScrapeRow,
   type ExtensionScrapeCreatorPublishedResult,
 } from '../lib/publishBridge'
+import { DraftImagePoolPicker } from '../components/DraftImagePoolPicker'
+import { DraftFolderSidebar } from '../components/DraftFolderSidebar'
 
 type NotesTab = 'hist' | 'draft'
 /** all=全部；uncategorized=未分类；否则为二级目录 id */
@@ -220,9 +224,10 @@ export function NotesPage() {
   const pasteOfficialUrl = useCallback(
     async (row: PublishedNote) => {
       const hint = row.title.length > 24 ? `${row.title.slice(0, 24)}…` : row.title
-      const raw = window.prompt(
+      const raw = await appPrompt(
         `粘贴小红书笔记链接（${hint}）`,
         row.official_url || 'https://www.xiaohongshu.com/explore/',
+        { title: '笔记链接' },
       )
       if (raw === null) return
       const url = raw.trim()
@@ -361,13 +366,25 @@ export function NotesPage() {
     })
   }
 
-  const promptName = (title: string, defaultValue = '') => {
-    const v = window.prompt(title, defaultValue)
+  const promptFolderName = async (opts: {
+    title: string
+    hint: string
+    placeholder?: string
+    defaultValue?: string
+  }) => {
+    const v = await appPrompt(opts.hint, opts.defaultValue ?? '', {
+      title: opts.title,
+      placeholder: opts.placeholder,
+    })
     return v?.trim() || null
   }
 
   const addFolderL1 = async () => {
-    const name = promptName('一级分类名称（如：数学）')
+    const name = await promptFolderName({
+      title: '新建一级分类',
+      hint: '输入学科或主题名称',
+      placeholder: '如：数学、英语',
+    })
     if (!name) return
     try {
       await apiPost('/api/notes/draft-folders', { name })
@@ -379,10 +396,15 @@ export function NotesPage() {
   }
 
   const addFolderL2 = async (parentId: string) => {
-    const name = promptName('二级分类名称（如：2026年）')
+    const name = await promptFolderName({
+      title: '新建二级分类',
+      hint: '输入子分类名称',
+      placeholder: '如：初一数学、2026年',
+    })
     if (!name) return
     try {
       await apiPost('/api/notes/draft-folders', { name, parent_id: parentId })
+      setExpandedL1((prev) => new Set([...prev, parentId]))
       await refreshFolders()
       showToast('已添加二级分类')
     } catch (e) {
@@ -391,7 +413,11 @@ export function NotesPage() {
   }
 
   const renameFolder = async (id: string, current: string) => {
-    const name = promptName('重命名分类', current)
+    const name = await promptFolderName({
+      title: '重命名分类',
+      hint: '输入新的分类名称',
+      defaultValue: current,
+    })
     if (!name || name === current) return
     try {
       await apiPatch(`/api/notes/draft-folders/${id}`, { name })
@@ -406,7 +432,8 @@ export function NotesPage() {
     const msg = isL1
       ? '删除一级分类前请先删除其下所有二级分类。确定删除？'
       : '删除后，该目录下草稿将变为「未分类」。确定删除？'
-    if (!window.confirm(msg)) return
+    const ok = await appConfirm(msg, { title: '删除分类', danger: true, confirmLabel: '删除' })
+    if (!ok) return
     try {
       await apiDelete(`/api/notes/draft-folders/${id}`)
       if (folderFilter === id) setFolderFilter('all')
@@ -521,7 +548,12 @@ export function NotesPage() {
 
   const deleteDraft = async (d: ComposedDraftRow) => {
     const label = (d.snapshot_title || '').trim() || '（无标题）'
-    if (!window.confirm(`确定删除草稿「${label.slice(0, 40)}」？此操作不可恢复。`)) return
+    const ok = await appConfirm(`确定删除草稿「${label.slice(0, 40)}」？此操作不可恢复。`, {
+      title: '删除草稿',
+      danger: true,
+      confirmLabel: '删除',
+    })
+    if (!ok) return
     try {
       await apiDelete(`/api/notes/composed-drafts/${d.id}`)
       if (previewDetail?.id === d.id) setPreviewDetail(null)
@@ -877,117 +909,18 @@ export function NotesPage() {
         </div>
         </>
       ) : (
-        <div id="notes-panel-draft" className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 lg:grid-cols-[220px_1fr]">
-          <aside className="border-b border-slate-100 pb-4 lg:border-b-0 lg:border-r lg:pr-4 lg:pb-0">
-            <div className="mb-2 text-xs font-medium text-slate-500">分类目录（二级）</div>
-            <div className="mb-2 flex flex-wrap gap-1">
-              <button
-                type="button"
-                className="rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
-                onClick={() => void addFolderL1()}
-              >
-                + 一级
-              </button>
-            </div>
-            <nav className="max-h-[min(52vh,480px)] space-y-0.5 overflow-y-auto pr-1 text-sm">
-              <button
-                type="button"
-                className={`block w-full rounded-lg px-2 py-1.5 text-left ${
-                  folderFilter === 'all' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50'
-                }`}
-                onClick={() => setFolderFilter('all')}
-              >
-                全部草稿
-              </button>
-              <button
-                type="button"
-                className={`block w-full rounded-lg px-2 py-1.5 text-left ${
-                  folderFilter === 'uncategorized'
-                    ? 'bg-slate-100 font-medium text-slate-900'
-                    : 'text-slate-600 hover:bg-slate-50'
-                }`}
-                onClick={() => setFolderFilter('uncategorized')}
-              >
-                未分类
-              </button>
-              {folders.map((l1) => (
-                <div key={l1.id} className="pt-1">
-                  <div className="flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      className="shrink-0 rounded px-1 text-slate-400 hover:bg-slate-50"
-                      onClick={() => toggleL1Expand(l1.id)}
-                      aria-label={expandedL1.has(l1.id) ? '收起' : '展开'}
-                    >
-                      {expandedL1.has(l1.id) ? '▾' : '▸'}
-                    </button>
-                    <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{l1.name}</span>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded px-1 text-[10px] text-slate-400 hover:text-brand"
-                      title="添加二级分类"
-                      onClick={() => void addFolderL2(l1.id)}
-                    >
-                      +
-                    </button>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded px-1 text-[10px] text-slate-400 hover:text-slate-600"
-                      title="重命名"
-                      onClick={() => void renameFolder(l1.id, l1.name)}
-                    >
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded px-1 text-[10px] text-slate-400 hover:text-rose-600"
-                      title="删除一级"
-                      onClick={() => void removeFolder(l1.id, true)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  {expandedL1.has(l1.id) ? (
-                    <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-slate-100 pl-2">
-                      {l1.children.length === 0 ? (
-                        <li className="px-2 py-1 text-[11px] text-slate-400">（暂无二级，点 + 添加）</li>
-                      ) : (
-                        l1.children.map((l2) => (
-                          <li key={l2.id} className="flex items-center gap-0.5">
-                            <button
-                              type="button"
-                              className={`min-w-0 flex-1 truncate rounded-lg px-2 py-1 text-left text-xs ${
-                                folderFilter === l2.id
-                                  ? 'bg-slate-100 font-medium text-slate-900'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              }`}
-                              onClick={() => setFolderFilter(l2.id)}
-                            >
-                              {l2.name}
-                            </button>
-                            <button
-                              type="button"
-                              className="shrink-0 text-[10px] text-slate-400 hover:text-slate-600"
-                              onClick={() => void renameFolder(l2.id, l2.name)}
-                            >
-                              ✎
-                            </button>
-                            <button
-                              type="button"
-                              className="shrink-0 text-[10px] text-slate-400 hover:text-rose-600"
-                              onClick={() => void removeFolder(l2.id, false)}
-                            >
-                              ×
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  ) : null}
-                </div>
-              ))}
-            </nav>
-          </aside>
+        <div id="notes-panel-draft" className="grid gap-4 rounded-xl border border-slate-200 bg-white p-5 lg:grid-cols-[248px_1fr]">
+          <DraftFolderSidebar
+            folders={folders}
+            folderFilter={folderFilter}
+            expandedL1={expandedL1}
+            onFilterChange={setFolderFilter}
+            onToggleL1Expand={toggleL1Expand}
+            onAddL1={() => void addFolderL1()}
+            onAddL2={(parentId) => void addFolderL2(parentId)}
+            onRename={(id, current) => void renameFolder(id, current)}
+            onRemove={(id, isL1) => void removeFolder(id, isL1)}
+          />
           <div className="min-w-0">
           {drafts.length === 0 ? (
             <p className="text-sm text-slate-500">暂无组合草稿。点击「组合生成新笔记」，从文案版本与图稿池生成。</p>
@@ -1144,32 +1077,20 @@ export function NotesPage() {
                 <label className="mb-1 block text-xs text-slate-500">
                   条目图稿池（多选）
                   <span className="ml-1 text-slate-400">
-                    池内 {composePoolImages.length} 张 · 已选 {orderedSelectedIds.length}
+                    {groupImagesByPool(composeDetail).length} 个池 · 池内{' '}
+                    {composePoolImages.length} 张 · 已选 {orderedSelectedIds.length}
                   </span>
                 </label>
-                {composePoolImages.length === 0 ? (
-                  <p className="text-xs text-slate-400">
-                    暂无图稿，将生成「仅文案」草稿；请先到「图片管理」入池。
-                  </p>
-                ) : (
-                  <div className="max-h-40 space-y-1 overflow-y-auto text-xs text-slate-600">
-                    {composePoolImages.map((im: DraftImage, idx) => (
-                      <label key={im.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-slate-50">
-                        <input
-                          type="checkbox"
-                          checked={pickedImages.has(im.id)}
-                          onChange={() => togglePickImage(im.id)}
-                          className="rounded border-slate-300"
-                        />
-                        <span className="truncate">
-                          图稿 #{idx + 1}
-                          {im.is_cover ? '（封面）' : ''}
-                          {!im.include_in_publish ? ' · 未参与发布' : ''}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                <DraftImagePoolPicker
+                  entryId={composeEntryId}
+                  detail={composeDetail}
+                  picked={pickedImages}
+                  disabled={composeBusy}
+                  onToggle={togglePickImage}
+                  onPickedChange={setPickedImages}
+                  onDetailChange={setComposeDetail}
+                  onError={(msg) => showToast(msg)}
+                />
               </div>
             </div>
 
@@ -1356,31 +1277,19 @@ export function NotesPage() {
                 <label className="mb-1 block text-xs text-slate-500">配图（多选）</label>
                 {!editDetail ? (
                   <p className="text-xs text-slate-400">加载图稿池…</p>
-                ) : editPoolImages.length === 0 ? (
-                  <p className="text-xs text-slate-400">
-                    条目暂无图稿，保存后为「待配图」草稿；请到「图片管理」入池。
-                  </p>
                 ) : (
-                  <div className="max-h-36 space-y-1 overflow-y-auto text-xs text-slate-600">
-                    {editPoolImages.map((im: DraftImage, idx) => (
-                      <label
-                        key={im.id}
-                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-slate-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={editPickedImages.has(im.id)}
-                          disabled={editBusy}
-                          onChange={() => toggleEditPickImage(im.id)}
-                          className="rounded border-slate-300"
-                        />
-                        <span className="truncate">
-                          图稿 #{idx + 1}
-                          {im.is_cover ? '（封面）' : ''}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  <DraftImagePoolPicker
+                    entryId={editDraft?.entry_id ?? null}
+                    detail={editDetail}
+                    picked={editPickedImages}
+                    disabled={editBusy}
+                    onToggle={toggleEditPickImage}
+                    onPickedChange={setEditPickedImages}
+                    onDetailChange={setEditDetail}
+                    onError={(msg) => showToast(msg)}
+                    emptyHint="条目暂无图稿，保存后为「待配图」草稿；请到「图片管理」入池。"
+                    maxHeightClass="max-h-40"
+                  />
                 )}
               </div>
             </div>

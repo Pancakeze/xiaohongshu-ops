@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AppDialogHost } from './components/AppDialogHost'
 import { AppShell } from './layout/AppShell'
 import { CopyPage } from './pages/CopyPage'
 import { DashPage } from './pages/DashPage'
@@ -10,6 +11,7 @@ import { WorkbenchPage } from './pages/WorkbenchPage'
 export default function App() {
   return (
     <BrowserRouter>
+      <AppDialogHost />
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<Navigate to="/workbench" replace />} />

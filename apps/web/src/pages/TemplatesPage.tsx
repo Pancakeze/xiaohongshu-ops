@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPatch, apiPost, type Template } from '../lib/api'
+import { appConfirm } from '../lib/appDialog'
 
 type EditorState =
   | null
@@ -102,7 +103,12 @@ export function TemplatesPage() {
   }
 
   const remove = async (row: Template) => {
-    if (!window.confirm(`删除模版「${row.name}」？`)) return
+    const ok = await appConfirm(`删除模版「${row.name}」？`, {
+      title: '删除模版',
+      danger: true,
+      confirmLabel: '删除',
+    })
+    if (!ok) return
     try {
       await apiDelete(`/api/templates/${row.id}`)
       await load()

@@ -417,6 +417,16 @@ def ensure_draft_image_pools_schema() -> None:
             conn.execute(text("CREATE INDEX ix_draft_images_pool_id ON draft_images (pool_id)"))
             conn.execute(text("ALTER TABLE draft_images ALTER COLUMN pool_id SET NOT NULL"))
 
+        insp_conn = inspect(conn)
+        if "draft_images" in insp_conn.get_table_names():
+            cols_di_name = {c["name"] for c in insp_conn.get_columns("draft_images")}
+            if "name" not in cols_di_name:
+                conn.execute(
+                    text(
+                        "ALTER TABLE draft_images ADD COLUMN name VARCHAR(120) NOT NULL DEFAULT ''"
+                    )
+                )
+
 
 def ensure_draft_folders_schema() -> None:
     """笔记管理：组合草稿二级分类目录 + composed_drafts.folder_id。"""

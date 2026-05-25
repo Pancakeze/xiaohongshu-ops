@@ -83,6 +83,7 @@ export type DraftImage = {
   id: string
   pool_id: string
   sort_order: number
+  name?: string
   public_url: string
   is_cover: boolean
   include_in_publish: boolean

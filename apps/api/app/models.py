@@ -233,6 +233,7 @@ class DraftImage(Base):
         index=True,
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     public_url: Mapped[str] = mapped_column(Text, nullable=False)
     is_cover: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     include_in_publish: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

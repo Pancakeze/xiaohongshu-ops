@@ -10,8 +10,10 @@ import {
   type Template,
 } from '../lib/api'
 import { CopyCompetitorPanel } from '../components/CopyCompetitorPanel'
+import { appConfirm } from '../lib/appDialog'
 import { persistCurrentEntryId, resolveCurrentEntryId } from '../lib/currentEntry'
 import { formatYmdHm } from '../lib/formatDate'
+import { XHS_K12_COMPLIANCE_ITEMS } from '../lib/xhsK12Compliance'
 
 function sourceLabel(source: string): string {
   if (source === 'generated') return '新生成'
@@ -38,9 +40,22 @@ export function CopyPage() {
   const [benchmarkDraft, setBenchmarkDraft] = useState<{ title: string; body: string } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const justSavedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedVersionId
+
+  const selectedVersion = useMemo(
+    () => (selectedVersionId ? versions.find((v) => v.id === selectedVersionId) ?? null : null),
+    [versions, selectedVersionId],
+  )
+
+  const isDirty = useMemo(() => {
+    if (!selectedVersion) return false
+    return selectedVersion.title !== title || selectedVersion.body !== body
+  }, [selectedVersion, title, body])
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
@@ -168,41 +183,78 @@ export function CopyPage() {
   }, [versions, selectedVersionId, primaryId])
 
   const selectVersion = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      if (id === selectedVersionId) return
+      const current = selectedVersionId ? versions.find((v) => v.id === selectedVersionId) : null
+      if (current && (current.title !== title || current.body !== body)) {
+        const ok = await appConfirm('当前版本有未保存的修改，切换后将丢失。是否继续？', {
+          title: '未保存的修改',
+        })
+        if (!ok) return
+      }
       if (saveTimer.current) clearTimeout(saveTimer.current)
       const row = versions.find((v) => v.id === id)
       if (!row) return
       setSelectedVersionId(id)
       setTitle(row.title)
       setBody(row.body)
+      setJustSaved(false)
     },
-    [versions],
+    [versions, selectedVersionId, title, body],
   )
 
+  const saveCopy = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!entryId || !selectedVersionId || !isDirty) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    setSaving(true)
+    setJustSaved(false)
+    try {
+      const updated = await apiPatch<CopyVersion>(
+        `/api/entries/${entryId}/copy-versions/${selectedVersionId}`,
+        { title, body },
+      )
+      const vers = await apiGet<CopyVersion[]>(`/api/entries/${entryId}/copy-versions`)
+      setVersions(vers)
+      if (updated.is_primary) {
+        setEntry((prev) =>
+          prev ? { ...prev, title: updated.title, body: updated.body } : prev,
+        )
+        window.dispatchEvent(new CustomEvent('xhs:entry-updated', { detail: { entryId } }))
+      }
+      setJustSaved(true)
+      if (justSavedTimer.current) clearTimeout(justSavedTimer.current)
+      justSavedTimer.current = setTimeout(() => setJustSaved(false), 2500)
+      if (!opts?.silent) {
+        showToast(updated.is_primary ? '已保存并同步主版本' : '已保存当前文案版本')
+      }
+    } catch (e) {
+      if (!opts?.silent) showToast(parseApiErr(e))
+    } finally {
+      setSaving(false)
+    }
+  }, [entryId, selectedVersionId, isDirty, title, body, showToast])
+
   useEffect(() => {
-    if (!entryId || !selectedVersionId) return
-    const row = versions.find((v) => v.id === selectedVersionId)
-    if (!row) return
-    if (row.title === title && row.body === body) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        if (isDirty && !saving) void saveCopy()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isDirty, saving, saveCopy])
+
+  useEffect(() => {
+    if (!entryId || !selectedVersionId || !isDirty) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      void (async () => {
-        try {
-          await apiPatch<CopyVersion>(`/api/entries/${entryId}/copy-versions/${selectedVersionId}`, {
-            title,
-            body,
-          })
-          const vers = await apiGet<CopyVersion[]>(`/api/entries/${entryId}/copy-versions`)
-          setVersions(vers)
-        } catch (e) {
-          showToast(parseApiErr(e))
-        }
-      })()
-    }, 800)
+      void saveCopy({ silent: true })
+    }, 2000)
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
-  }, [title, body, entryId, selectedVersionId, versions, showToast])
+  }, [title, body, entryId, selectedVersionId, isDirty, saveCopy])
 
   const templateName = useMemo(() => {
     const tid = entry?.selected_template_id
@@ -353,31 +405,63 @@ export function CopyPage() {
             </ul>
           </div>
           <div className="rounded-xl border border-red-100 bg-[var(--color-brand-soft)] p-4 text-sm text-slate-700">
-            <strong className="text-brand">真人感</strong>：口语化断句、避免「综上所述」等套话；禁用夸张保过承诺。
+            <p className="mb-2">
+              <strong className="text-brand">真人感</strong>：口语化断句、避免「综上所述」等套话；禁用夸张保过承诺。
+            </p>
+            <p className="mb-1.5 text-xs font-semibold text-slate-800">小红书 K12 规范（生成时切忌）</p>
+            <ul className="max-h-36 space-y-1 overflow-y-auto text-[11px] leading-relaxed text-slate-600">
+              {XHS_K12_COMPLIANCE_ITEMS.map((item) => (
+                <li key={item} className="flex gap-1.5">
+                  <span className="shrink-0 text-brand">·</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
         <div className="flex min-h-[320px] flex-col rounded-xl border border-slate-200 bg-white p-5 lg:col-span-2">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold text-slate-900">标题与正文</h2>
+            <div>
+              <h2 className="font-semibold text-slate-900">标题与正文</h2>
+              {isDirty ? (
+                <p className="mt-0.5 text-[11px] text-amber-600">有未保存的修改</p>
+              ) : justSaved ? (
+                <p className="mt-0.5 text-[11px] text-emerald-600">已保存</p>
+              ) : saving ? (
+                <p className="mt-0.5 text-[11px] text-slate-400">保存中…</p>
+              ) : null}
+            </div>
             <div className="flex flex-col items-end gap-1">
-              <button
-                type="button"
-                disabled={generating}
-                className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
-                onClick={() => void onGenerate()}
-              >
-                {generating ? '生成中…' : '重新生成'}
-              </button>
-              <span className="max-w-xs text-right text-[10px] text-slate-600">
-                按当前模版「{templateName}」的结构与场景生成
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={!isDirty || saving || generating}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => void saveCopy()}
+                >
+                  {saving ? '保存中…' : '保存修改'}
+                </button>
+                <button
+                  type="button"
+                  disabled={generating || saving}
+                  className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+                  onClick={() => void onGenerate()}
+                >
+                  {generating ? '生成中…' : '重新生成'}
+                </button>
+              </div>
+              <span className="max-w-xs text-right text-[10px] text-slate-400">
+                ⌘/Ctrl+S 快捷保存 · 停止输入 2 秒后也会自动保存
               </span>
               {competitorPasteForGenerate ? (
                 <span className="max-w-xs text-right text-[10px] text-emerald-700">
-                  并带上竞品「对标草稿」作参考
+                  重新生成将带上竞品「对标草稿」· 模版「{templateName}」
                 </span>
               ) : (
-                <span className="max-w-xs text-right text-[10px] text-slate-400">未带对标草稿</span>
+                <span className="max-w-xs text-right text-[10px] text-slate-400">
+                  重新生成按模版「{templateName}」
+                </span>
               )}
             </div>
           </div>

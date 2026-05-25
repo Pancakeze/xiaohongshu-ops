@@ -9,6 +9,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import CompetitorAnalysisSnapshot, Entry
 from app.ollama_copy import call_ollama_chat, parse_competitor_analysis_output
+from app.xhs_k12_compliance import XHS_K12_COMPLIANCE_USER_REMINDER, append_k12_compliance_to_system_prompt
 from app.schemas import (
     CompetitorAnalyzeIn,
     CompetitorAnalyzeOut,
@@ -36,7 +37,7 @@ def _page_to_out(p: ScrapedPage) -> CompetitorPageOut:
 
 
 def _build_competitor_system_prompt() -> str:
-    return (
+    return append_k12_compliance_to_system_prompt(
         "你是小红书增长与内容策略分析师。"
         "你会基于给定的竞品页面摘要，提炼「top10 竞品特征/套路」并产出可执行的写作建议。"
         "最后你还要为用户生成一篇新的小红书笔记（标题+正文），要求明显不同于竞品措辞。"
@@ -48,7 +49,7 @@ def _build_competitor_system_prompt() -> str:
 
 
 def _build_xhs_system_prompt() -> str:
-    return (
+    return append_k12_compliance_to_system_prompt(
         "你是小红书增长与内容策略分析师。"
         "你会基于「小红书站内搜索 Top10 笔记卡片信息」（标题/摘要/点赞数参考）做竞品套路总结，"
         "再生成一篇对标的新笔记（标题+正文）。"
@@ -90,6 +91,7 @@ def _build_xhs_user_prompt(payload: CompetitorAnalyzeXhsIn, top10: list[XhsTopNo
         "3) 可直接抄作业的标题公式（至少 10 条）"
         "并生成 generated.title + generated.body。"
     )
+    blocks.append(XHS_K12_COMPLIANCE_USER_REMINDER)
     return "\n\n".join(blocks)
 
 
@@ -125,6 +127,7 @@ def _build_user_prompt(payload: CompetitorAnalyzeIn, pages: list[CompetitorPageO
         "3) 可直接抄作业的标题公式（至少 10 条）"
         "并生成 generated.title + generated.body。"
     )
+    blocks.append(XHS_K12_COMPLIANCE_USER_REMINDER)
     return "\n\n".join(blocks)
 
 

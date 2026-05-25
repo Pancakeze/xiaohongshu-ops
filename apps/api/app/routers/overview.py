@@ -61,8 +61,9 @@ def get_overview(
             .select_from(XhsPublishedNote)
             .where(
                 XhsPublishedNote.owner_id == user.id,
-                XhsPublishedNote.synced_at >= week_start_utc,
-                XhsPublishedNote.synced_at < week_end_utc,
+                XhsPublishedNote.published_at.isnot(None),
+                XhsPublishedNote.published_at >= week_start_utc,
+                XhsPublishedNote.published_at < week_end_utc,
             )
         )
         or 0

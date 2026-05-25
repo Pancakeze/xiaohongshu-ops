@@ -65,7 +65,7 @@ export function DashPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="text-xs text-slate-500">本周发布数量</div>
           <div className="mt-1 text-2xl font-bold text-slate-900">{data.published_this_week_count}</div>
-          <div className="mt-2 text-xs text-emerald-600">自然周 Mon–Sun</div>
+          <div className="mt-2 text-xs text-emerald-600">按创作中心发布时间 · Mon–Sun</div>
           {data.week_range_mon_sun_label ? (
             <div className="mt-1 text-xs text-slate-400">（{data.week_range_mon_sun_label}）</div>
           ) : null}

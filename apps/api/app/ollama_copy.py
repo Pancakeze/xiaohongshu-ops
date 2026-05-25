@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.xhs_k12_compliance import XHS_K12_COMPLIANCE_SYSTEM_BLOCK
 
 
 def _strip_markdown_json_fence(text: str) -> str:
@@ -174,6 +175,7 @@ def build_copy_system_prompt() -> str:
         "标题与整体语气须与模版名称、适用场景一致，不得写成与模版定位无关的泛文案。"
         "口吻口语化、有断句；避免「综上所述」「总而言之」等套话；避免夸张保过承诺。"
         "竞品与对标草稿仅用于结构与语气参考，须改写脱敏，不得照搬侵权内容。"
+        f"\n\n{XHS_K12_COMPLIANCE_SYSTEM_BLOCK}\n\n"
         "你必须只输出一个 JSON 对象，不要 markdown 代码围栏，不要其它说明文字。"
         'JSON 格式：{"title":"…","body":"…"}。'
         "title 不超过 80 字；body 为正文，可含换行与少量 emoji，总长度合理即可。"

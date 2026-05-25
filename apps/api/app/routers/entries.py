@@ -35,6 +35,7 @@ from app.models import (
     User,
 )
 from app.ollama_copy import build_copy_system_prompt, call_ollama_chat, parse_generated_title_body
+from app.xhs_k12_compliance import XHS_K12_COMPLIANCE_USER_REMINDER
 from app.schemas import (
     CompetitorAnalysisHistoryOut,
     CopyGenerateIn,
@@ -428,6 +429,7 @@ def generate_copy_version(
             user_blocks.append(
                 "【对标草稿用途】上一条含「对标草稿」为竞品参考工具产出；须与上文模版要求一并满足：再创作、显著改表述，勿逐句复述。"
             )
+    user_blocks.append(XHS_K12_COMPLIANCE_USER_REMINDER)
     user_blocks.append(
         "【输出】请综合以上模版字段（名称、场景、段落结构及元数据）"
         + ("与竞品参考" if (url_note or paste) else "")
@@ -589,6 +591,7 @@ def add_image(
         entry_id=entry_id,
         pool_id=pool_id,
         sort_order=sort_order,
+        name=(payload.name or "").strip(),
         public_url=payload.public_url,
         is_cover=payload.is_cover,
         include_in_publish=payload.include_in_publish,
@@ -670,6 +673,8 @@ def patch_image(
         raise HTTPException(status_code=404, detail="Image not found")
     if payload.sort_order is not None:
         img.sort_order = payload.sort_order
+    if payload.name is not None:
+        img.name = payload.name.strip()
     if payload.include_in_publish is not None:
         img.include_in_publish = payload.include_in_publish
     if payload.is_cover is not None:
