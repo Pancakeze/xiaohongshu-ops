@@ -3,6 +3,9 @@
   "private": true,
   "scripts": {
     "dev:web": "npm --prefix apps/web run dev:hot",
-    "dev:web:restart": "node scripts/restart-web.mjs"
+    "dev:web:restart": "node scripts/restart-web.mjs",
+    "dev:docker": "docker compose --profile app up --build",
+    "dev:docker:down": "docker compose --profile app down",
+    "dev:docker:static": "docker compose --profile static up --build"
   }
 }

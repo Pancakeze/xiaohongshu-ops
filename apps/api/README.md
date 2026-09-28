@@ -16,6 +16,8 @@
 
 ## 本地运行
 
+也可使用仓库根目录 **Docker 全栈**：`npm run dev:docker`（见 [docs/local-dev-docker.md](../../docs/local-dev-docker.md)）。
+
 ```bash
 # 1. 启动数据库（仓库根目录）
 docker compose up -d

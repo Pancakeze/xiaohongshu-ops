@@ -1,5 +1,6 @@
 # 环境变量与密钥（*.example 模板可提交；勿提交真实 .env）
 .env
+.env.docker
 *.pem
 *.crx
 
@@ -26,6 +27,11 @@ extensions/xhs-publish-bridge/node_modules/
 # 本地上传（保留目录占位见 apps/api/.gitignore）
 apps/api/data/uploads/*
 !apps/api/data/uploads/.gitkeep
+# Docker Compose 挂载的持久化目录（仓库根 data/）
+data/uploads/*
+!data/uploads/.gitkeep
+data/generated/*
+!data/generated/.gitkeep
 
 # Google / Playwright 本地用户数据与生成缓存（勿入库）
 apps/api/data/google_profile/

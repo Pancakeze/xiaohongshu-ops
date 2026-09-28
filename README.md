@@ -89,7 +89,8 @@ flowchart LR
 | `apps/web` | React 19 + Vite + TypeScript + Tailwind |
 | `apps/api` | FastAPI + SQLAlchemy + PostgreSQL |
 | `extensions/xhs-publish-bridge` | 发布桥接扩展（加载 **`dist/`**，非 `src`） |
-| `docker-compose.yml` | 本地 PostgreSQL 16 |
+| `docker-compose.yml` | PostgreSQL；`--profile app` 可起 API + 前端容器 |
+| `docs/local-dev-docker.md` | Docker 全栈启动说明 |
 | `prd/`、`prototype/`、`docs/`、`flowcharts/` | 产品与工程文档 |
 
 `.gitignore` 已排除 `.env`、`node_modules`、各端 `dist/`、本地上传目录及 `day01/`、`day02/` 等个人素材目录。
@@ -106,6 +107,10 @@ flowchart LR
 ---
 
 ## 本地联调
+
+**分步说明（推荐）：** [docs/local-dev.md](docs/local-dev.md) — 环境要求、首次安装、日常三终端启动、自检与可选 Ollama/Gemini。
+
+**Docker 全栈（API + 前端容器）：** `cp .env.docker.example .env.docker` 后 `npm run dev:docker`，详见 [docs/local-dev-docker.md](docs/local-dev-docker.md)。
 
 ### 1. 克隆
 
@@ -192,7 +197,9 @@ Chrome → `chrome://extensions` → 开发者模式 → **加载已解压的扩
 
 | 文档 | 路径 |
 |------|------|
+| **本地启动说明** | `docs/local-dev.md` |
 | PRD v1.3 | `prd/prd_v1.3.html` |
 | 交互原型 v1.3 | `prototype/prototype_v1.3.html` |
 | 主流程图 | `flowcharts/main-flow.mmd` |
 | 发布实施计划 | `docs/plan-workbench-publish-first.md` |
+| Docker 本地全栈 | `docs/local-dev-docker.md` |

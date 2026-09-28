@@ -2,15 +2,19 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+/** Docker 内 Vite 代理到 compose 服务 api；本机开发默认 127.0.0.1:8000 */
+const apiProxyTarget = process.env.VITE_PROXY_API ?? 'http://127.0.0.1:8000'
+const devHost = process.env.VITE_DEV_HOST ?? '127.0.0.1'
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   /** 本地热开发：默认开启 HMR（@vitejs/plugin-react 的 Fast Refresh） */
   server: {
-    host: '127.0.0.1',
+    host: devHost,
     port: 5173,
     strictPort: true,
     hmr: {
-      host: '127.0.0.1',
+      host: devHost === '0.0.0.0' ? '127.0.0.1' : devHost,
       port: 5173,
       overlay: true,
     },
@@ -22,11 +26,11 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://127.0.0.1:8000',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },
